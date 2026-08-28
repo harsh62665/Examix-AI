@@ -167,21 +167,37 @@ button, input, textarea, select {
   letter-spacing: normal;
 }
 
+/* LaTeX Block Equations ($$) - Visual separation with generous margins & dedicated card container */
 .katex-display {
-  margin: 1rem 0 !important;
-  padding: 0.75rem 1rem !important;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0.75rem;
+  margin: 1.75rem 0 !important;
+  padding: 1.15rem 1.5rem !important;
+  background: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 1rem !important;
   overflow-x: auto !important;
   overflow-y: hidden !important;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+@media (min-width: 640px) {
+  .katex-display {
+    margin: 2rem 0 !important;
+    padding: 1.35rem 1.75rem !important;
+  }
+}
+
+.katex-display:hover {
+  border-color: rgba(74, 222, 128, 0.3) !important;
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.5), 0 0 20px -2px rgba(74, 222, 128, 0.08) !important;
 }
 
 .katex-display > .katex {
   text-align: center;
   white-space: nowrap;
+  display: block;
 }
 
 .katex .mord.mathnormal {
@@ -190,7 +206,7 @@ button, input, textarea, select {
 
 .katex .mbin,
 .katex .mrel {
-  color: #4ADE80; /* Subtle green accent for operators = + - 	imes */
+  color: #4ADE80; /* Subtle green accent for operators = + - \times */
 }
 
 .katex .mord {

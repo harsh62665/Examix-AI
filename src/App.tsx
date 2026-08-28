@@ -45,13 +45,13 @@ import {
   Share2
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import MarkdownRenderer from './components/MarkdownRenderer';
+import MarkdownRenderer, { normalizeDecorativeUnicode } from './components/MarkdownRenderer';
 import DrivePickerModal from './components/DrivePickerModal';
 import VoiceMentorModal from './components/VoiceMentorModal';
 import MasteryDashboard, { ConceptMastery } from './components/MasteryDashboard';
 import { initAuth } from './lib/firebase';
 import { exportChatToPDF } from './lib/pdfExport';
-import { cleanTextForSpeech, getOptimalVoice } from './utils/speechConverter';
+import { cleanTextForSpeech, getOptimalVoice, createSpeechBoundaryTracker, SpeechBoundaryTracker } from './utils/speechConverter';
 import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-javascript';
@@ -193,13 +193,30 @@ function formatTimeAgo(timestamp: number): string {
 // Helper to extract next steps from message content
 function extractNextSteps(content: string): string[] {
   if (!content) return [];
-  const match = /\[NEXT_STEPS\]([\s\S]*?)\[\/NEXT_STEPS\]/i.exec(content);
-  if (!match) return [];
-  const lines = match[1]
-    .split('\n')
-    .map(line => line.replace(/^[-*•\d.]+\s*/, '').trim())
-    .filter(line => line.length > 0 && !line.startsWith('[') && line.length < 80);
-  return lines.slice(0, 3);
+  const normalized = normalizeDecorativeUnicode(content);
+  const match = /\[NEXT_STEPS\]([\s\S]*?)\[\/NEXT_STEPS\]/i.exec(normalized);
+  if (match) {
+    const lines = match[1]
+      .split('\n')
+      .map(line => normalizeDecorativeUnicode(line.replace(/^[-*•\d.]+\s*/, '').replace(/^\[|\]$/g, '').trim()))
+      .filter(line => line.length > 0 && !line.startsWith('[') && line.length < 80);
+    if (lines.length > 0) return lines.slice(0, 3);
+  }
+
+  // Fallback pattern: [Practice 1 Tough Trap] [Derive Step 2 in Vector Form]
+  const bracketMatches = [...normalized.matchAll(/\[([^[\]]{4,80})\]/g)]
+    .map(m => normalizeDecorativeUnicode(m[1].trim()))
+    .filter(
+      p =>
+        !p.toUpperCase().startsWith('VIDEO_SCENE') &&
+        !p.toUpperCase().startsWith('WHITEBOARD') &&
+        !p.toUpperCase().startsWith('NEXT_STEPS') &&
+        !p.toUpperCase().startsWith('/NEXT_STEPS') &&
+        !p.startsWith('http') &&
+        !p.includes('://')
+    );
+
+  return bracketMatches.slice(0, 3);
 }
 
 // Full-screen Assistant Message with Gemini UI Styling
@@ -218,8 +235,19 @@ const AssistantMessage = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechCharIndex, setSpeechCharIndex] = useState<number>(0);
+  const [spokenText, setSpokenText] = useState<string>('');
+  const speechIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const trackerRef = useRef<SpeechBoundaryTracker | null>(null);
 
   const nextSteps = extractNextSteps(msg.content);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (speechIntervalRef.current) clearInterval(speechIntervalRef.current);
+    };
+  }, []);
 
   const handleCopy = async () => {
     try {
@@ -244,9 +272,16 @@ const AssistantMessage = ({
       return;
     }
 
+    if (speechIntervalRef.current) {
+      clearInterval(speechIntervalRef.current);
+      speechIntervalRef.current = null;
+    }
+
     if (isSpeaking) {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
+      setSpeechCharIndex(0);
+      trackerRef.current = null;
       return;
     }
 
@@ -256,9 +291,16 @@ const AssistantMessage = ({
     const cleanText = cleanTextForSpeech(msg.content);
     if (!cleanText) return;
 
+    setSpokenText(cleanText);
+    setSpeechCharIndex(0);
+
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
+
+    // Initialize granular boundary tracker
+    const tracker = createSpeechBoundaryTracker(cleanText, utterance.rate);
+    trackerRef.current = tracker;
 
     const voices = window.speechSynthesis.getVoices();
     const naturalVoice = getOptimalVoice(voices, cleanText);
@@ -267,8 +309,39 @@ const AssistantMessage = ({
       utterance.voice = naturalVoice;
     }
 
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    // Hardware speech boundary event with granular LaTeX token snapping
+    utterance.onboundary = (event) => {
+      if (trackerRef.current && typeof event.charIndex === 'number') {
+        const calibratedIndex = trackerRef.current.onBoundary({
+          charIndex: event.charIndex,
+          charLength: (event as any).charLength,
+          name: (event as any).name,
+          elapsedTime: (event as any).elapsedTime,
+        });
+        setSpeechCharIndex(calibratedIndex);
+      }
+    };
+
+    // Granular interpolated progression with token phonetic weight smoothing
+    speechIntervalRef.current = setInterval(() => {
+      if (trackerRef.current) {
+        const interpolatedIndex = trackerRef.current.getInterpolatedCharIndex();
+        setSpeechCharIndex((prev) => Math.max(prev, interpolatedIndex));
+      }
+    }, 60);
+
+    const stopSpeech = () => {
+      if (speechIntervalRef.current) {
+        clearInterval(speechIntervalRef.current);
+        speechIntervalRef.current = null;
+      }
+      trackerRef.current = null;
+      setIsSpeaking(false);
+      setSpeechCharIndex(0);
+    };
+
+    utterance.onend = stopSpeech;
+    utterance.onerror = stopSpeech;
 
     window.speechSynthesis.speak(utterance);
     setIsSpeaking(true);
@@ -279,7 +352,12 @@ const AssistantMessage = ({
       <div className="flex items-start max-w-full">
         {/* Content Body */}
         <div className="min-w-0 flex-1">
-          <MarkdownRenderer content={msg.content} />
+          <MarkdownRenderer
+            content={msg.content}
+            isSpeaking={isSpeaking}
+            speechCharIndex={speechCharIndex}
+            spokenText={spokenText}
+          />
 
           {/* Dynamic Contextual Next Step Pills */}
           {nextSteps.length > 0 && onPromptClick && (
@@ -1507,19 +1585,19 @@ export default function App() {
               className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
                 messages.length === 0
                   ? 'border-white/5 bg-white/5 text-gray-500 cursor-not-allowed opacity-50'
-                  : 'border-white/10 bg-[#1A1A1D] text-gray-200 hover:border-[#4ADE80]/50 hover:bg-[#4ADE80]/15 hover:text-[#4ADE80] active:scale-95 cursor-pointer shadow-sm'
+                  : 'border-[#4ADE80]/40 bg-[#1A1A1D] text-[#4ADE80] hover:border-[#4ADE80] hover:bg-[#4ADE80]/20 hover:text-white active:scale-95 cursor-pointer shadow-[0_0_12px_rgba(74,222,128,0.15)]'
               }`}
-              title={messages.length === 0 ? "Start a chat to export study notes" : "Download current chat as PDF study notes"}
+              title={messages.length === 0 ? "Start a chat to download PDF revision notes" : "Download current chat as high-yield Exam Quick Revision Sheet PDF"}
             >
               {isExportingPDF ? (
                 <>
                   <Loader2 size={14} className="animate-spin text-[#4ADE80]" />
-                  <span className="hidden sm:inline">Exporting...</span>
+                  <span className="hidden sm:inline">Exporting PDF...</span>
                 </>
               ) : (
                 <>
                   <Download size={14} className={messages.length > 0 ? "text-[#4ADE80]" : "text-gray-500"} />
-                  <span className="hidden sm:inline">Export Chat</span>
+                  <span className="hidden sm:inline">PDF Notes</span>
                 </>
               )}
             </button>
@@ -1570,19 +1648,19 @@ export default function App() {
                   <button
                     onClick={() =>
                       handleSend(
-                        'Explain Newton second law (F = ma) with a real-life sports analogy and derive the step-by-step formula.'
+                        'Generate an Exam Quick Revision Sheet on Coulomb\'s Law and Electrostatic Force in Vector Form.'
                       )
                     }
-                    className="group flex flex-col justify-between rounded-2xl border border-white/10 bg-[#161618] p-4 transition-all hover:border-[#4ADE80]/50 hover:bg-white/5 active:scale-[0.99] cursor-pointer"
+                    className="group flex flex-col justify-between rounded-2xl border border-[#4ADE80]/30 bg-[#161618] p-4 transition-all hover:border-[#4ADE80] hover:bg-[#4ADE80]/5 active:scale-[0.99] cursor-pointer shadow-[0_0_15px_rgba(74,222,128,0.1)]"
                   >
                     <div className="flex items-center justify-between text-xs text-[#4ADE80] mb-2 font-medium">
-                      <span>Physics Intuition</span>
-                      <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" />
+                      <span>Exam Revision Sheet</span>
+                      <Download size={14} className="transition-transform group-hover:translate-y-0.5 text-[#4ADE80]" />
                     </div>
                     <span className="text-sm font-semibold text-gray-200">
-                      Newton's 2nd Law & Derivations
+                      Coulomb's Law Quick Sheet
                     </span>
-                    <span className="text-xs text-gray-400 mt-1">Breakdown with real-world examples</span>
+                    <span className="text-xs text-gray-400 mt-1">Definition, LaTeX formulas, traps & 1-page PDF notes</span>
                   </button>
 
                   <button
@@ -1598,43 +1676,43 @@ export default function App() {
                     <span className="text-sm font-semibold text-gray-200">
                       Scan Handwritten Solution
                     </span>
-                    <span className="text-xs text-gray-400 mt-1">Upload multiple photos for line-by-line audit</span>
+                    <span className="text-xs text-gray-400 mt-1">Upload notebook photos for line-by-line audit</span>
                   </button>
 
                   <button
                     onClick={() =>
                       handleSend(
-                        'Generate a 3-question interactive conceptual micro-quiz on Organic Chemistry Reaction Mechanisms with hints.'
+                        'Generate an Exam Quick Revision Sheet on Newton\'s Laws of Motion with free-body diagrams and common exam traps.'
                       )
                     }
                     className="group flex flex-col justify-between rounded-2xl border border-white/10 bg-[#161618] p-4 transition-all hover:border-[#4ADE80]/50 hover:bg-white/5 active:scale-[0.99] cursor-pointer"
                   >
                     <div className="flex items-center justify-between text-xs text-[#4ADE80] mb-2 font-medium">
-                      <span>Active Recall</span>
-                      <BookOpen size={14} className="transition-transform group-hover:translate-x-1" />
+                      <span>Physics Intuition</span>
+                      <Zap size={14} className="transition-transform group-hover:translate-x-1" />
                     </div>
                     <span className="text-sm font-semibold text-gray-200">
-                      Interactive Micro-Quiz
+                      Newton's 2nd Law & Derivations
                     </span>
-                    <span className="text-xs text-gray-400 mt-1">Test retention on any subject</span>
+                    <span className="text-xs text-gray-400 mt-1">Breakdown with proportionality rules & solutions</span>
                   </button>
 
                   <button
                     onClick={() =>
                       handleSend(
-                        'Explain Calculus Integration by Parts visually like a story, and show common examiner pitfalls.'
+                        'Generate an Exam Quick Revision Sheet on Calculus Integration by Parts with standard formulas and pitfalls.'
                       )
                     }
                     className="group flex flex-col justify-between rounded-2xl border border-white/10 bg-[#161618] p-4 transition-all hover:border-[#4ADE80]/50 hover:bg-white/5 active:scale-[0.99] cursor-pointer"
                   >
                     <div className="flex items-center justify-between text-xs text-[#4ADE80] mb-2 font-medium">
                       <span>Math Deep Dive</span>
-                      <Zap size={14} className="transition-transform group-hover:translate-x-1" />
+                      <BookOpen size={14} className="transition-transform group-hover:translate-x-1" />
                     </div>
                     <span className="text-sm font-semibold text-gray-200">
                       Calculus Integration by Parts
                     </span>
-                    <span className="text-xs text-gray-400 mt-1">Spot common calculation traps</span>
+                    <span className="text-xs text-gray-400 mt-1">Spot common substitution and sign traps</span>
                   </button>
                 </div>
               </div>

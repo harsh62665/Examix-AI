@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { ConceptMastery } from './MasteryDashboard';
-import { cleanTextForSpeech, getOptimalVoice } from '../utils/speechConverter';
+import { cleanTextForSpeech, getOptimalVoice, createSpeechBoundaryTracker, SpeechBoundaryTracker } from '../utils/speechConverter';
 
 interface VoiceMentorModalProps {
   isOpen: boolean;
@@ -49,6 +49,10 @@ export default function VoiceMentorModal({
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
   const [mentorResponse, setMentorResponse] = useState('');
+  const [spokenText, setSpokenText] = useState('');
+  const [speechCharIndex, setSpeechCharIndex] = useState(0);
+  const speechIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const trackerRef = useRef<SpeechBoundaryTracker | null>(null);
   const [conversationHistory, setConversationHistory] = useState<{ role: 'user' | 'assistant'; text: string; imagePreview?: string }[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [speechRate] = useState<number>(1.0);
@@ -309,15 +313,27 @@ export default function VoiceMentorModal({
     if (!synthRef.current) return;
     synthRef.current.cancel();
 
+    if (speechIntervalRef.current) {
+      clearInterval(speechIntervalRef.current);
+      speechIntervalRef.current = null;
+    }
+
     const cleanSpokenText = cleanTextForSpeech(text);
     if (!cleanSpokenText) {
       setSessionState('idle');
       return;
     }
 
+    setSpokenText(cleanSpokenText);
+    setSpeechCharIndex(0);
+
     const utterance = new SpeechSynthesisUtterance(cleanSpokenText);
     utterance.rate = speechRate;
     utterance.pitch = 1.0;
+
+    // Granular boundary tracking
+    const tracker = createSpeechBoundaryTracker(cleanSpokenText, utterance.rate);
+    trackerRef.current = tracker;
 
     const voices = synthRef.current.getVoices();
     const selectedVoice = getOptimalVoice(voices, cleanSpokenText, speechLang);
@@ -326,8 +342,35 @@ export default function VoiceMentorModal({
       utterance.voice = selectedVoice;
     }
 
-    utterance.onend = () => {
+    // Hardware speech boundary event with granular LaTeX token snapping
+    utterance.onboundary = (event) => {
+      if (trackerRef.current && typeof event.charIndex === 'number') {
+        const calibratedIndex = trackerRef.current.onBoundary({
+          charIndex: event.charIndex,
+          charLength: (event as any).charLength,
+          name: (event as any).name,
+          elapsedTime: (event as any).elapsedTime,
+        });
+        setSpeechCharIndex(calibratedIndex);
+      }
+    };
+
+    // Granular interpolated progression with token phonetic weight smoothing
+    speechIntervalRef.current = setInterval(() => {
+      if (trackerRef.current) {
+        const interpolatedIndex = trackerRef.current.getInterpolatedCharIndex();
+        setSpeechCharIndex((prev) => Math.max(prev, interpolatedIndex));
+      }
+    }, 60);
+
+    const stopSpeech = () => {
+      if (speechIntervalRef.current) {
+        clearInterval(speechIntervalRef.current);
+        speechIntervalRef.current = null;
+      }
+      trackerRef.current = null;
       setSessionState('idle');
+      setSpeechCharIndex(0);
       if (onEndCallback) {
         onEndCallback();
       } else {
@@ -337,9 +380,8 @@ export default function VoiceMentorModal({
       }
     };
 
-    utterance.onerror = () => {
-      setSessionState('idle');
-    };
+    utterance.onend = stopSpeech;
+    utterance.onerror = stopSpeech;
 
     currentUtteranceRef.current = utterance;
     synthRef.current.speak(utterance);
@@ -748,8 +790,13 @@ export default function VoiceMentorModal({
               </p>
             )}
             {mentorResponse && sessionState === 'speaking' && (
-              <div className="text-xs sm:text-sm text-emerald-300 line-clamp-3 leading-relaxed text-left px-1 font-medium">
-                <MarkdownRenderer content={mentorResponse} />
+              <div className="text-xs sm:text-sm text-emerald-300 leading-relaxed text-left px-1 font-medium">
+                <MarkdownRenderer
+                  content={mentorResponse}
+                  isSpeaking={sessionState === 'speaking'}
+                  speechCharIndex={speechCharIndex}
+                  spokenText={spokenText}
+                />
               </div>
             )}
             {!transcript && !interimTranscript && (!mentorResponse || sessionState !== 'speaking') && (
