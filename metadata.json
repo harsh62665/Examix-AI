@@ -1,0 +1,11 @@
+{
+  "name": "Examix AI",
+  "description": "A modern, futuristic PC/Mobile/Web AI Study Assistant app.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
