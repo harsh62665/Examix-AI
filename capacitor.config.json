@@ -1,0 +1,6 @@
+{
+  "appId": "com.examix.ai",
+  "appName": "Examix AI",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

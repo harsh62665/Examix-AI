@@ -6,6 +6,7 @@ import { Copy, Check, Code2, Sparkles, Volume2, Radio } from 'lucide-react';
 import { VideoSceneCard } from './VideoSceneCard';
 import { WhiteboardPlayer } from './WhiteboardPlayer';
 import { ManimAnimationCard } from './ManimAnimationCard';
+import { SvgDiagramCard, sanitizeSvg, ImageLightboxModal } from './SvgDiagramCard';
 import { getSpeechHighlightInfo, isBlockActiveForSpeech } from '../utils/speechConverter';
 
 export interface MarkdownRendererProps {
@@ -16,32 +17,79 @@ export interface MarkdownRendererProps {
   spokenText?: string;
 }
 
-// Clean and sanitize raw SVG strings to prevent unsafe scripts while preserving full graphic tags & attributes
-function sanitizeSvg(svgStr: string): string {
-  return svgStr
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/on\w+="[^"]*"/gi, '')
-    .replace(/on\w+='[^']*'/gi, '')
-    .replace(/javascript:[^"']*/gi, '');
+/**
+ * Strip all mathematical alphanumeric symbols, fraktur, and gothic unicode glyphs.
+ * Normalizes stylized / decorative Unicode text (Mathematical Bold, Fraktur,
+ * Gothic, Script, Double-struck, Fullwidth, Sans-serif, Monospace, and Digits) into clean standard ASCII.
+ */
+export function normalizeToPlainAscii(str: string): string {
+  if (!str) return '';
+  return str.normalize('NFKD').replace(/[\u{1D400}-\u{1D7FF}]/gu, (char) => {
+    const code = char.codePointAt(0)!;
+    // Normalize Math Bold / Fraktur to standard ASCII
+    if (code >= 0x1D400 && code <= 0x1D419) return String.fromCharCode(code - 0x1D400 + 65); // A-Z
+    if (code >= 0x1D41A && code <= 0x1D433) return String.fromCharCode(code - 0x1D41A + 97); // a-z
+    if (code >= 0x1D434 && code <= 0x1D44D) return String.fromCharCode(code - 0x1D434 + 65); // Italic A-Z
+    if (code >= 0x1D44E && code <= 0x1D467) return String.fromCharCode(code - 0x1D44E + 97); // Italic a-z
+    if (code >= 0x1D468 && code <= 0x1D481) return String.fromCharCode(code - 0x1D468 + 65); // Bold Italic A-Z
+    if (code >= 0x1D482 && code <= 0x1D49B) return String.fromCharCode(code - 0x1D482 + 97); // Bold Italic a-z
+    if (code >= 0x1D49C && code <= 0x1D4B5) return String.fromCharCode(code - 0x1D49C + 65); // Script A-Z
+    if (code >= 0x1D4B6 && code <= 0x1D4CF) return String.fromCharCode(code - 0x1D4B6 + 97); // Script a-z
+    if (code >= 0x1D4D0 && code <= 0x1D4E9) return String.fromCharCode(code - 0x1D4D0 + 65); // Bold Script A-Z
+    if (code >= 0x1D4EA && code <= 0x1D503) return String.fromCharCode(code - 0x1D4EA + 97); // Bold Script a-z
+    if (code >= 0x1D504 && code <= 0x1D51C) return String.fromCharCode(code - 0x1D504 + 65); // Fraktur A-Z
+    if (code >= 0x1D51E && code <= 0x1D537) return String.fromCharCode(code - 0x1D51E + 97); // Fraktur a-z
+    if (code >= 0x1D538 && code <= 0x1D551) return String.fromCharCode(code - 0x1D538 + 65); // Double-struck A-Z
+    if (code >= 0x1D552 && code <= 0x1D56B) return String.fromCharCode(code - 0x1D552 + 97); // Double-struck a-z
+    if (code >= 0x1D56C && code <= 0x1D585) return String.fromCharCode(code - 0x1D56C + 65); // Bold Fraktur A-Z
+    if (code >= 0x1D586 && code <= 0x1D59F) return String.fromCharCode(code - 0x1D586 + 97); // Bold Fraktur a-z
+    if (code >= 0x1D5A0 && code <= 0x1D5B9) return String.fromCharCode(code - 0x1D5A0 + 65); // Sans-serif A-Z
+    if (code >= 0x1D5BA && code <= 0x1D5D3) return String.fromCharCode(code - 0x1D5BA + 97); // Sans-serif a-z
+    if (code >= 0x1D5D4 && code <= 0x1D5ED) return String.fromCharCode(code - 0x1D5D4 + 65); // Sans-serif Bold A-Z
+    if (code >= 0x1D5EE && code <= 0x1D607) return String.fromCharCode(code - 0x1D5EE + 97); // Sans-serif Bold a-z
+    if (code >= 0x1D608 && code <= 0x1D621) return String.fromCharCode(code - 0x1D621 + 65); // Sans-serif Italic A-Z
+    if (code >= 0x1D622 && code <= 0x1D63B) return String.fromCharCode(code - 0x1D622 + 97); // Sans-serif Italic a-z
+    if (code >= 0x1D63C && code <= 0x1D655) return String.fromCharCode(code - 0x1D63C + 65); // Sans-serif Bold Italic A-Z
+    if (code >= 0x1D656 && code <= 0x1D66F) return String.fromCharCode(code - 0x1D656 + 97); // Sans-serif Bold Italic a-z
+    if (code >= 0x1D670 && code <= 0x1D689) return String.fromCharCode(code - 0x1D670 + 65); // Monospace A-Z
+    if (code >= 0x1D68A && code <= 0x1D6A3) return String.fromCharCode(code - 0x1D68A + 97); // Monospace a-z
+    if (code >= 0x1D7CE && code <= 0x1D7D7) return String.fromCharCode(code - 0x1D7CE + 48); // Digits 0-9
+    return char;
+  });
 }
 
 /**
  * Normalizes stylized / decorative Unicode text (Mathematical Bold, Fraktur,
- * Gothic, Script, Double-struck, Fullwidth, Sans-serif, etc.) into clean standard ASCII.
+ * Gothic, Script, Double-struck, Fullwidth, Sans-serif, Monospace, etc.) into clean standard ASCII.
+ * Completely purges glyphs like 𝕰𝖝𝖆𝖒𝖎𝖝 -> Examix.
  */
 export function normalizeDecorativeUnicode(text: string): string {
   if (!text) return '';
-  // 1. Native NFKD decomposition maps mathematical alphanumeric symbols (U+1D400 - U+1D7FF) to base Latin letters
-  let result = text.normalize('NFKD');
 
-  // 2. Map legacy / special Letterlike symbols that might not decompose completely in older JS engines
-  const letterlikeMap: Record<string, string> = {
+  // 1. Direct codepoint decomposition and regex normalization for Mathematical Alphanumeric Symbols
+  let result = normalizeToPlainAscii(text);
+
+  // 2. Comprehensive Letterlike & Special Enclosed unicode symbol map
+  const specialMap: Record<string, string> = {
     'ℬ': 'B', 'ℭ': 'C', 'ℰ': 'E', 'ℱ': 'F', 'ℋ': 'H', 'ℑ': 'I', 'ℐ': 'I', 'ℒ': 'L', 'ℳ': 'M',
     'ℛ': 'R', 'ℨ': 'Z', 'ℯ': 'e', 'ℊ': 'g', 'ℴ': 'o', 'ℵ': 'Aleph', 'ℶ': 'Bet',
-    'ℂ': 'C', 'ℍ': 'H', 'ℕ': 'N', 'ℙ': 'P', 'ℚ': 'Q', 'ℝ': 'R', 'ℤ': 'Z'
+    'ℂ': 'C', 'ℍ': 'H', 'ℕ': 'N', 'ℙ': 'P', 'ℚ': 'Q', 'ℝ': 'R', 'ℤ': 'Z',
+    'ⓐ': 'a', 'ⓑ': 'b', 'ⓒ': 'c', 'ⓓ': 'd', 'ⓔ': 'e', 'ⓕ': 'f', 'ⓖ': 'g', 'ⓗ': 'h', 'ⓘ': 'i',
+    'ⓙ': 'j', 'ⓚ': 'k', 'ⓛ': 'l', 'ⓜ': 'm', 'ⓝ': 'n', 'ⓞ': 'o', 'ⓟ': 'p', 'ⓠ': 'q', 'ⓡ': 'r',
+    'ⓢ': 's', 'ⓣ': 't', 'ⓤ': 'u', 'ⓥ': 'v', 'ⓦ': 'w', 'ⓧ': 'x', 'ⓨ': 'y', 'ⓩ': 'z',
+    'Ⓐ': 'A', 'Ⓑ': 'B', 'Ⓒ': 'C', 'Ⓓ': 'D', 'Ⓔ': 'E', 'Ⓕ': 'F', 'Ⓖ': 'G', 'Ⓗ': 'H', 'Ⓘ': 'I',
+    'Ⓙ': 'J', 'Ⓚ': 'K', 'Ⓛ': 'L', 'Ⓜ': 'M', 'Ⓝ': 'N', 'Ⓞ': 'O', 'Ⓟ': 'P', 'Ⓠ': 'Q', 'Ⓡ': 'R',
+    'Ⓢ': 'S', 'Ⓣ': 'T', 'Ⓤ': 'U', 'Ⓥ': 'V', 'Ⓦ': 'W', 'Ⓧ': 'X', 'Ⓨ': 'Y', 'Ⓩ': 'Z'
   };
 
-  result = result.replace(/[ℬℭℰℱℋℑℐℒℳℛℨℯℊℴℂℍℕℙℚℝℤ]/g, (ch) => letterlikeMap[ch] || ch);
+  result = result.replace(/[ℬℭℰℱℋℑℐℒℳℛℨℯℊℴℂℍℕℙℚℝℤⓐ-ⓩⒶ-Ⓩ]/g, (ch) => specialMap[ch] || ch);
+
+  // 3. Purge any remaining surrogate pairs in math alphanumeric block
+  result = result.replace(/[\uD835][\uDC00-\uDFFF]/g, (surrogate) => surrogate.normalize('NFKD'));
+
+  // 4. Normalize LaTeX brackets \( ... \) to $ ... $ and \[ ... \] to $$ ... $$ for robust KaTeX rendering
+  result = result.replace(/\\\[([\s\S]*?)\\\]/g, '$$\n$1\n$$');
+  result = result.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
 
   return result;
 }
@@ -363,27 +411,10 @@ function CodeBlock({ node, inline, className, children, ...props }: any) {
     );
   }
 
-  // If code block is an svg block written in code fences, render it cleanly with extra margins
+  // If code block is an svg block written in code fences, render it cleanly with extra margins & 1-click fullscreen lightbox
   if ((lang === 'svg' || lang === 'xml') && textContent.trim().startsWith('<svg') && textContent.trim().endsWith('</svg>')) {
     return (
-      <div className="my-6 sm:my-8 overflow-hidden rounded-2xl border border-white/10 bg-[#0F0F11]/90 backdrop-blur-md shadow-xl transition-all">
-        <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.03] px-4 py-2 text-xs text-gray-400">
-          <span className="flex items-center gap-1.5 font-medium text-emerald-400">
-            <Sparkles size={14} /> Intuitive Diagram
-          </span>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1 text-gray-400 hover:text-white transition-colors cursor-pointer"
-          >
-            {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-            <span>{copied ? 'Copied SVG' : 'Copy SVG'}</span>
-          </button>
-        </div>
-        <div 
-          className="flex justify-center p-6 sm:p-8 overflow-x-auto text-white [&>svg]:max-w-full [&>svg]:h-auto"
-          dangerouslySetInnerHTML={{ __html: sanitizeSvg(textContent) }}
-        />
-      </div>
+      <SvgDiagramCard svgContent={textContent} />
     );
   }
 
@@ -465,6 +496,7 @@ export default function MarkdownRenderer({
   speechCharIndex = 0,
   spokenText = ''
 }: MarkdownRendererProps) {
+  const [activeImageLightbox, setActiveImageLightbox] = useState<{ src: string; alt?: string } | null>(null);
   const blocks = useMemo(() => parseBlocks(content), [content]);
 
   // Compute live speech highlight context
@@ -533,21 +565,7 @@ export default function MarkdownRenderer({
       {blocks.map((block, index) => {
         if (block.type === 'svg') {
           return (
-            <div
-              key={`svg-${index}`}
-              className="my-6 sm:my-8 overflow-hidden rounded-2xl border border-white/10 bg-[#0F0F11]/90 backdrop-blur-md shadow-xl transition-all duration-300"
-            >
-              <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.03] px-4 py-2 text-xs text-gray-400">
-                <span className="flex items-center gap-1.5 font-medium text-emerald-400">
-                  <Sparkles size={14} /> Visual Diagram
-                </span>
-                <span className="text-[11px] text-gray-500 font-mono">SVG Vector</span>
-              </div>
-              <div
-                className="flex justify-center p-6 sm:p-8 overflow-x-auto text-white [&>svg]:max-w-full [&>svg]:h-auto"
-                dangerouslySetInnerHTML={{ __html: sanitizeSvg(block.content) }}
-              />
-            </div>
+            <SvgDiagramCard key={`svg-${index}`} svgContent={block.content} />
           );
         }
 
@@ -692,6 +710,71 @@ export default function MarkdownRenderer({
                 blockquote: ({ children, ...props }) => {
                   const rawText = extractRawText(children);
                   const isBlockActive = isSpeaking && !!activeSentence && isBlockActiveForSpeech(rawText, activeSentence);
+                  
+                  const isDecayRetentionCheck = rawText.includes('15-Day Memory Retention Check') ||
+                                              rawText.includes('Memory Retention Check') ||
+                                              rawText.includes('Spaced Repetition Check') ||
+                                              rawText.includes('Ebbinghaus');
+
+                  const isRecallCheck = rawText.includes('Spontaneous Memory Check') || 
+                                       rawText.includes('Quick 10-Second Recall Check') || 
+                                       rawText.includes('10-Second Recall') ||
+                                       rawText.includes('Memory Check');
+
+                  if (isDecayRetentionCheck) {
+                    return (
+                      <div className={`my-4 overflow-hidden rounded-2xl border transition-all duration-300 ${
+                        isBlockActive
+                          ? 'border-amber-400 bg-gradient-to-br from-[#2A1D0D] via-[#1F160A] to-[#120D05] shadow-[0_0_25px_rgba(251,191,36,0.25)] ring-1 ring-amber-400/40'
+                          : 'border-amber-500/40 bg-gradient-to-br from-[#1C1408] via-[#140E06] to-[#0A0703] shadow-xl'
+                      }`}>
+                        <div className="flex items-center justify-between border-b border-amber-500/20 bg-amber-500/10 px-3.5 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-2.5 w-2.5 rounded-full bg-amber-400 animate-ping" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                              🧠 15-Day Memory Retention Check
+                            </span>
+                          </div>
+                          <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                            <span>🛡️</span> Ebbinghaus Decay Engine
+                          </span>
+                        </div>
+                        <div className="p-3.5 sm:p-4 text-sm text-amber-50/95 italic leading-relaxed">
+                          {highlightNode(children, activeWord, isBlockActive, sentenceWords, activeWordIndexInSentence, rawText)}
+                        </div>
+                        <div className="px-3.5 py-1.5 bg-black/30 border-t border-amber-500/10 flex items-center justify-between text-[10px] text-amber-300/70">
+                          <span>1-3-7-15 Day Spaced Repetition</span>
+                          <span>3 Correct Checks = 🛡️ Permanent Lock</span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (isRecallCheck) {
+                    return (
+                      <div className={`my-4 overflow-hidden rounded-2xl border transition-all duration-300 ${
+                        isBlockActive
+                          ? 'border-[#4ADE80] bg-gradient-to-br from-[#12271F] via-[#0E1F18] to-[#0A1713] shadow-[0_0_25px_rgba(74,222,128,0.25)] ring-1 ring-[#4ADE80]/40'
+                          : 'border-emerald-500/40 bg-gradient-to-br from-[#0D1C17] via-[#0A1713] to-[#060D0B] shadow-lg'
+                      }`}>
+                        <div className="flex items-center justify-between border-b border-emerald-500/20 bg-emerald-500/10 px-3.5 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-2 w-2 rounded-full bg-[#4ADE80] animate-ping" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-[#4ADE80] flex items-center gap-1.5">
+                              🔄 Spontaneous Memory Check
+                            </span>
+                          </div>
+                          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-500/30">
+                            ⚡ 10–15s Recall Check
+                          </span>
+                        </div>
+                        <div className="p-3.5 sm:p-4 text-sm text-gray-100 italic leading-relaxed">
+                          {highlightNode(children, activeWord, isBlockActive, sentenceWords, activeWordIndexInSentence, rawText)}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <blockquote
                       className={`my-3 border-l-4 pl-4 py-1.5 italic transition-all duration-300 rounded-r-xl ${
@@ -734,13 +817,25 @@ export default function MarkdownRenderer({
                   </td>
                 ),
                 img: ({ src, alt, ...props }) => (
-                  <span className="my-4 block overflow-hidden rounded-2xl border border-white/15 bg-black/40 shadow-xl max-w-2xl mx-auto">
+                  <span
+                    onClick={() => {
+                      if (src) {
+                        setActiveImageLightbox({ src, alt: alt || 'Diagram / Image View' });
+                      }
+                    }}
+                    className="group relative my-4 block overflow-hidden rounded-2xl border border-white/15 bg-black/40 shadow-xl max-w-2xl mx-auto cursor-zoom-in transition-all duration-200 hover:border-[#4ADE80]/50 hover:shadow-[0_0_25px_rgba(74,222,128,0.15)]"
+                    title="Click or tap to inspect full-screen with zoom & pan"
+                  >
+                    <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/70 px-2.5 py-1 text-[11px] font-medium text-emerald-300 opacity-0 backdrop-blur-md transition-opacity duration-200 group-hover:opacity-100 shadow-md pointer-events-none">
+                      <Sparkles size={12} className="text-[#4ADE80]" />
+                      <span>Full Screen</span>
+                    </div>
                     <img
                       src={src}
                       alt={alt || 'Visual Diagram'}
                       referrerPolicy="no-referrer"
                       loading="lazy"
-                      className="w-full h-auto max-h-[500px] object-contain rounded-2xl transition-transform duration-300 hover:scale-[1.01]"
+                      className="w-full h-auto max-h-[500px] object-contain rounded-2xl transition-transform duration-300 group-hover:scale-[1.01]"
                       {...props}
                     />
                     {alt && alt !== 'image' && (
@@ -757,6 +852,15 @@ export default function MarkdownRenderer({
           </div>
         );
       })}
+
+      {/* Interactive Fullscreen Image Lightbox Modal */}
+      {activeImageLightbox && (
+        <ImageLightboxModal
+          src={activeImageLightbox.src}
+          alt={activeImageLightbox.alt}
+          onClose={() => setActiveImageLightbox(null)}
+        />
+      )}
     </div>
   );
 }

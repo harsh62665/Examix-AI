@@ -109,7 +109,9 @@ export function cleanAssistantContent(rawText: string): string {
 
 export async function exportChatToPDF(
   session: ChatSession | null,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  customSubject?: string,
+  customTitle?: string
 ): Promise<void> {
   if (!messages || messages.length === 0) {
     throw new Error('No messages to export');
@@ -128,16 +130,20 @@ export async function exportChatToPDF(
   let cursorY = margin;
 
   // Determine if there is a primary revision sheet topic
-  let topicTitle = session?.title || 'Exam Quick Revision Sheet';
-  for (const m of messages) {
-    if (m.role === 'assistant' && m.content) {
-      const topicMatch = /# 📌\s*([^\n—–-]+)(?:—|–|-)?\s*Exam Quick Revision Sheet/i.exec(m.content);
-      if (topicMatch) {
-        topicTitle = topicMatch[1].trim();
-        break;
+  let topicTitle = customTitle?.trim() || session?.title || 'Exam Quick Revision Sheet';
+  if (!customTitle?.trim()) {
+    for (const m of messages) {
+      if (m.role === 'assistant' && m.content) {
+        const topicMatch = /# 📌\s*([^\n—–-]+)(?:—|–|-)?\s*Exam Quick Revision Sheet/i.exec(m.content);
+        if (topicMatch) {
+          topicTitle = topicMatch[1].trim();
+          break;
+        }
       }
     }
   }
+
+  const subjectLabel = customSubject?.trim() || 'Target: 100/100 Board & Competitive Exams';
 
   const cleanTitle = topicTitle.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40) || 'Examix_Revision_Notes';
   const formattedDate = new Date(session?.createdAt || Date.now()).toLocaleDateString('en-US', {
@@ -173,7 +179,7 @@ export async function exportChatToPDF(
       doc.setTextColor(148, 163, 184); // Slate 400
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
-      doc.text(`Target: 100/100 Board & Competitive Exams  |  Generated: ${formattedDate}`, margin + 18, cursorY + 60);
+      doc.text(`${subjectLabel}  |  Generated: ${formattedDate}`, margin + 18, cursorY + 60);
 
       cursorY += 88;
     } else {

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { ConceptMastery } from './MasteryDashboard';
+import { safeFetchJson, ChatApiResponse } from '../lib/apiClient';
 import { cleanTextForSpeech, getOptimalVoice, createSpeechBoundaryTracker, SpeechBoundaryTracker } from '../utils/speechConverter';
 
 interface VoiceMentorModalProps {
@@ -428,7 +429,7 @@ export default function VoiceMentorModal({
       // Route to fast, high-speed multimodal flash model
       const chosenModel = modelId || 'gemini-3.7-flash';
 
-      const res = await fetch('/api/chat', {
+      const data = await safeFetchJson<ChatApiResponse>('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -439,14 +440,6 @@ export default function VoiceMentorModal({
         })
       });
 
-      if (!res.ok) {
-        if (res.status === 429) {
-          throw new Error('Quota cooling down, retry in 5s');
-        }
-        throw new Error('Network error');
-      }
-
-      const data = await res.json();
       let reply = data.response || data.text || "Main dekh raha hoon. Is step par focus karo.";
 
       // Check if server indicated rate limiting or cooldown

@@ -42,16 +42,53 @@ import {
   Download,
   FileDown,
   Film,
-  Share2
+  Share2,
+  ScanText,
+  Tag,
+  Filter,
+  Settings,
+  Moon,
+  User as UserIcon,
+  LogIn,
+  LogOut,
+  Cloud
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import MarkdownRenderer, { normalizeDecorativeUnicode } from './components/MarkdownRenderer';
+import { ImageLightboxModal } from './components/SvgDiagramCard';
 import DrivePickerModal from './components/DrivePickerModal';
 import VoiceMentorModal from './components/VoiceMentorModal';
 import MasteryDashboard, { ConceptMastery } from './components/MasteryDashboard';
-import { initAuth } from './lib/firebase';
+import PdfSlideModal, { UploadedNoteFile } from './components/PdfSlideModal';
+import { ApiKeySettingsModal } from './components/ApiKeySettingsModal';
+import HotwordControlCenterModal from './components/HotwordControlCenterModal';
+import ScreenOffOledOverlay from './components/ScreenOffOledOverlay';
+import {
+  HotwordConfig,
+  HotwordEngineSettings,
+  DEFAULT_HOTWORD_SETTINGS,
+  detectHotwordMatch,
+  playWakeChime,
+  isWithinStudySchedule
+} from './utils/hotwordEngine';
+import {
+  PRESET_SUBJECTS,
+  detectSubjectTag,
+  getSubjectTagStyle,
+  renderSubjectIcon,
+  TagPickerDropdown
+} from './components/SubjectTagSelector';
+import { initAuth, getStoredProfile, StoredUserProfile, googleSignIn, logout, VAULT_FOLDER_NAME } from './lib/firebase';
 import { exportChatToPDF } from './lib/pdfExport';
+import { safeFetchJson, ChatApiResponse } from './lib/apiClient';
 import { cleanTextForSpeech, getOptimalVoice, createSpeechBoundaryTracker, SpeechBoundaryTracker } from './utils/speechConverter';
+import {
+  loadLocalCognitiveGraph,
+  saveLocalCognitiveGraph,
+  syncToDrive,
+  StudentCognitiveGraph,
+  applyDiagnosticUpdate
+} from './utils/neuroSyncEngine';
 import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-javascript';
@@ -169,9 +206,10 @@ export interface ChatSession {
   updatedAt: number;
   messages: ChatMessage[];
   modelId: string;
+  tag?: string;
 }
 
-function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
@@ -370,7 +408,7 @@ const AssistantMessage = ({
                 <button
                   key={sIdx}
                   onClick={() => onPromptClick(step)}
-                  className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#1E1F20] hover:bg-[#282A2C] hover:border-[#4ADE80]/50 px-3.5 py-1.5 text-xs font-medium text-gray-200 hover:text-white transition-all active:scale-95 shadow-sm cursor-pointer group/pill"
+                  className="flex items-center gap-1.5 rounded-full border border-[#1C382E] bg-[#10221B] hover:bg-[#152E24] hover:border-[#4ADE80]/50 px-3.5 py-1.5 text-xs font-medium text-gray-200 hover:text-white transition-all active:scale-95 shadow-xs cursor-pointer group/pill"
                 >
                   <span>{step}</span>
                   <ArrowUp size={12} className="rotate-45 text-gray-500 group-hover/pill:text-[#4ADE80] transition-colors" />
@@ -384,7 +422,7 @@ const AssistantMessage = ({
             {/* Copy Button */}
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#1A1A1A] px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-all hover:border-[#4ADE80]/40 hover:bg-[#4ADE80]/10 hover:text-[#4ADE80] active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg border border-[#1C382E] bg-[#0D1C17] px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-all hover:border-[#4ADE80]/40 hover:bg-[#12271F] hover:text-[#4ADE80] active:scale-95 cursor-pointer"
               title="Copy to Clipboard"
             >
               {copied ? (
@@ -407,7 +445,7 @@ const AssistantMessage = ({
               className={'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all active:scale-95 cursor-pointer ' + (
                 isSpeaking
                   ? 'border-[#4ADE80] bg-[#4ADE80]/20 text-[#4ADE80] shadow-[0_0_12px_rgba(74,222,128,0.3)]'
-                  : 'border-[#4ADE80]/30 bg-[#1A1A1A] text-gray-200 hover:border-[#4ADE80]/60 hover:bg-[#4ADE80]/10 hover:text-[#4ADE80]'
+                  : 'border-[#4ADE80]/30 bg-[#0D1C17] text-gray-200 hover:border-[#4ADE80]/60 hover:bg-[#12271F] hover:text-[#4ADE80]'
               )}
               title={isSpeaking ? 'Stop speaking' : 'Listen to AI explanation aloud'}
             >
@@ -433,7 +471,7 @@ const AssistantMessage = ({
             {onRegenerate && (
               <button
                 onClick={onRegenerate}
-                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#1A1A1A] px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-all hover:border-white/20 hover:text-white active:scale-95 cursor-pointer"
+                className="flex items-center gap-1.5 rounded-lg border border-[#1C382E] bg-[#0D1C17] px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-all hover:border-[#4ADE80]/30 hover:bg-[#12271F] hover:text-white active:scale-95 cursor-pointer"
                 title="Regenerate response"
               >
                 <RefreshCw size={13} />
@@ -461,32 +499,49 @@ const UserMessage = ({
     <div className="w-full flex flex-col items-end py-3 group">
       {hasImages && (
         <div className="flex flex-wrap justify-end gap-2.5 mb-2.5 max-w-[90%] sm:max-w-[75%]">
-          {msg.images!.map((img, i) => (
-            <div
-              key={i}
-              onClick={() => onImageClick(img.data)}
-              className="group relative cursor-pointer overflow-hidden rounded-2xl border border-white/15 bg-black/40 shadow-lg transition-all hover:border-[#4ADE80]/70 hover:scale-105"
-            >
-              <img
-                src={img.data}
-                alt={img.name || `Attachment ${i + 1}`}
-                className="h-32 w-32 sm:h-40 sm:w-40 object-cover"
-                referrerPolicy="no-referrer"
-              />
-              {img.markers && img.markers.map((marker, idx) => (
-                <div 
-                  key={idx}
-                  className="absolute w-4 h-4 sm:w-5 sm:h-5 -ml-2 -mt-2 sm:-ml-2.5 sm:-mt-2.5 bg-green-500 rounded-full border border-white flex items-center justify-center text-[8px] sm:text-[9px] font-bold text-white shadow-md pointer-events-none"
-                  style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
-                >
-                  {marker.label}
+          {msg.images!.map((img, i) => {
+            const isPdf = img.mimeType === 'application/pdf' || img.name?.toLowerCase().endsWith('.pdf') || img.data?.startsWith('data:application/pdf');
+            return (
+              <div
+                key={i}
+                onClick={() => onImageClick(img.data)}
+                className="group relative cursor-pointer overflow-hidden rounded-2xl border border-white/15 bg-black/40 shadow-lg transition-all hover:border-[#4ADE80]/70 hover:scale-105"
+              >
+                {isPdf ? (
+                  <div className="flex h-32 w-32 sm:h-36 sm:w-36 flex-col items-center justify-center rounded-2xl border border-red-500/30 bg-gradient-to-b from-[#221316] to-[#121214] p-3 text-center shadow-lg">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20 text-red-400 mb-2 border border-red-500/30 font-bold text-xs">
+                      PDF
+                    </div>
+                    <span className="truncate w-full text-xs font-semibold text-gray-200">
+                      {img.name || 'School Notes.pdf'}
+                    </span>
+                    <span className="text-[10px] text-emerald-400 mt-1 font-medium">
+                      Handwritten OCR
+                    </span>
+                  </div>
+                ) : (
+                  <img
+                    src={img.data}
+                    alt={img.name || `Attachment ${i + 1}`}
+                    className="h-32 w-32 sm:h-40 sm:w-40 object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                {img.markers && img.markers.map((marker, idx) => (
+                  <div 
+                    key={idx}
+                    className="absolute w-4 h-4 sm:w-5 sm:h-5 -ml-2 -mt-2 sm:-ml-2.5 sm:-mt-2.5 bg-green-500 rounded-full border border-white flex items-center justify-center text-[8px] sm:text-[9px] font-bold text-white shadow-md pointer-events-none"
+                    style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
+                  >
+                    {marker.label}
+                  </div>
+                ))}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <ZoomIn size={22} className="text-white drop-shadow" />
                 </div>
-              ))}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <ZoomIn size={22} className="text-white drop-shadow" />
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -512,7 +567,7 @@ const UserMessage = ({
               <Copy size={14} />
             </button>
           </div>
-          <div className="text-gray-200 text-[15px] sm:text-base leading-relaxed text-right bg-[#161618] border border-white/10 px-5 py-3 rounded-3xl rounded-tr-sm shadow-md">
+          <div className="text-gray-200 text-[15px] sm:text-base leading-relaxed text-right bg-[#10221B] border border-[#1C382E] px-5 py-3 rounded-3xl rounded-tr-sm shadow-md">
             {msg.content}
           </div>
         </div>
@@ -520,6 +575,53 @@ const UserMessage = ({
     </div>
   );
 };
+
+const DEFAULT_CONCEPT_MEMORY: ConceptMastery[] = [
+  {
+    concept: 'Quantization of Charge (q = ne)',
+    topic: 'Electrostatics',
+    status: 'Needs Revision',
+    lastUpdated: Date.now() - 16 * 86400000,
+    last_tested_date: new Date(Date.now() - 16 * 86400000).toISOString(),
+    streak_count: 0,
+    retention_level: 'DECAYED',
+    lastError: 'Forgot that n must be an integer (e = 1.6 x 10^-19 C)',
+    confidenceScore: 0.6
+  },
+  {
+    concept: 'Dielectric Constant (K or ε_r)',
+    topic: 'Electrostatics',
+    status: 'Needs Revision',
+    lastUpdated: Date.now() - 5 * 86400000,
+    last_tested_date: new Date(Date.now() - 5 * 86400000).toISOString(),
+    streak_count: 1,
+    retention_level: 'WARM',
+    lastError: 'Forgot that electrostatic force in medium decreases by factor K: F_m = F_0 / K',
+    confidenceScore: 0.55
+  },
+  {
+    concept: "Coulomb's Law Vector Form",
+    topic: 'Electrostatics',
+    status: 'Needs Revision',
+    lastUpdated: Date.now() - 2 * 86400000,
+    last_tested_date: new Date(Date.now() - 2 * 86400000).toISOString(),
+    streak_count: 1,
+    retention_level: 'FRESH',
+    lastError: 'Inverted sign convention of unit vector r_hat direction',
+    confidenceScore: 0.65
+  },
+  {
+    concept: 'Electric Field of a Point Charge',
+    topic: 'Electrostatics',
+    status: 'Mastered',
+    lastUpdated: Date.now() - 1 * 86400000,
+    last_tested_date: new Date(Date.now() - 1 * 86400000).toISOString(),
+    streak_count: 3,
+    retention_level: 'PERMANENT_LOCK',
+    lastError: null,
+    confidenceScore: 1.0
+  }
+];
 
 export default function App() {
   useEffect(() => {
@@ -553,6 +655,9 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string>('All');
+  const [activeTagMenuSessionId, setActiveTagMenuSessionId] = useState<string | null>(null);
+  const [isHeaderTagMenuOpen, setIsHeaderTagMenuOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isCanvasOpen, setIsCanvasOpen] = useState(false);
@@ -568,16 +673,218 @@ export default function App() {
   const [activeLightboxImg, setActiveLightboxImg] = useState<string | null>(null);
   const [annotatingImage, setAnnotatingImage] = useState<Attachment | null>(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [showPdfSlideModal, setShowPdfSlideModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showMasteryModal, setShowMasteryModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'account' | 'api_keys' | 'academic' | 'preferences' | 'hotwords'>('account');
+  const [currentUserProfile, setCurrentUserProfile] = useState<StoredUserProfile | null>(() => getStoredProfile());
+  const [showHotwordModal, setShowHotwordModal] = useState(false);
+  const [showOledScreenOffMode, setShowOledScreenOffMode] = useState(false);
+  const [activeWakeHotword, setActiveWakeHotword] = useState<string | null>(null);
+
+  // Synchronize Google Auth & Profile state
+  useEffect(() => {
+    const unsubscribe = initAuth((user) => {
+      if (user) {
+        setCurrentUserProfile({
+          uid: user.uid,
+          displayName: user.displayName,
+          email: user.email,
+          photoURL: user.photoURL
+        });
+      } else {
+        const stored = getStoredProfile();
+        setCurrentUserProfile(stored);
+      }
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  const [hotwordSettings, setHotwordSettings] = useState<HotwordEngineSettings>(() => {
+    try {
+      const saved = localStorage.getItem('examix_hotword_settings_v1');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading hotword settings', e);
+    }
+    return DEFAULT_HOTWORD_SETTINGS;
+  });
+
+  // Save hotword settings on change
+  const handleUpdateHotwordSettings = (newSettings: HotwordEngineSettings) => {
+    setHotwordSettings(newSettings);
+    try {
+      localStorage.setItem('examix_hotword_settings_v1', JSON.stringify(newSettings));
+    } catch (e) {}
+  };
+
+  // Background / Screen-Off Multi-Hotword Wake Listener
+  useEffect(() => {
+    if (!hotwordSettings.enabled) return;
+
+    let recognition: any = null;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) return;
+
+    const startBackgroundListening = () => {
+      try {
+        if (!isWithinStudySchedule(hotwordSettings)) return;
+
+        // If inverted power mode is enabled and screen is active, pause listening to preserve battery
+        if (hotwordSettings.invertedPowerMode && !document.hidden && !showOledScreenOffMode && !showVoiceModal) {
+          return;
+        }
+
+        if (recognition) {
+          try { recognition.stop(); } catch (e) {}
+        }
+
+        recognition = new SpeechRec();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'hi-IN';
+
+        recognition.onresult = (event: any) => {
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
+            const match = detectHotwordMatch(transcript, hotwordSettings.hotwords);
+            if (match.triggered && match.hotword) {
+              playWakeChime('wake');
+              setActiveWakeHotword(match.hotword.keyword);
+              showToast(`🎙️ Wake-Up Hotword: "${match.hotword.keyword}"`);
+
+              if (document.hidden || hotwordSettings.invertedPowerMode) {
+                setShowOledScreenOffMode(true);
+              } else {
+                setShowVoiceModal(true);
+              }
+              break;
+            }
+          }
+        };
+
+        recognition.onend = () => {
+          if (hotwordSettings.enabled && isWithinStudySchedule(hotwordSettings)) {
+            try { recognition.start(); } catch (e) {}
+          }
+        };
+
+        recognition.start();
+      } catch (err) {
+        console.warn('Background hotword recognition error:', err);
+      }
+    };
+
+    startBackgroundListening();
+
+    const handleVisibility = () => {
+      if (hotwordSettings.invertedPowerMode) {
+        if (document.hidden) {
+          startBackgroundListening();
+        } else if (!showOledScreenOffMode && !showVoiceModal) {
+          try { if (recognition) recognition.stop(); } catch (e) {}
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+    };
+  }, [hotwordSettings, showOledScreenOffMode, showVoiceModal]);
+
+  // Screen-off voice query processor with automated Spaced Repetition score persistence
+  const handleProcessScreenOffVoiceQuery = async (query: string, hotword?: HotwordConfig): Promise<string> => {
+    try {
+      const res = await safeFetchJson<ChatApiResponse>('/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: query }],
+          mode: 'screen_off_voice',
+          memory: conceptMemory,
+          model: selectedModel
+        })
+      });
+
+      const reply = res.response || 'Main aapki baat sun raha hoon. Kripya apna prashn dobara boliye.';
+
+      // Automatically sync oral checks / decay updates into concept memory and student profile
+      if (res.system_sync && Array.isArray(res.system_sync)) {
+        setConceptMemory(prev => {
+          let updated = [...prev];
+          res.system_sync!.forEach((u: any) => {
+            const conceptName = u.concept_name || u.concept;
+            if (!conceptName) return;
+            const status = u.status === 'CRITICAL_WEAKNESS' ? 'Critical Weakness' : (u.status === 'MASTERED' ? 'Mastered' : 'Needs Revision');
+            const existing = updated.find(m => m.concept.toLowerCase() === conceptName.toLowerCase());
+            if (existing) {
+              existing.status = status;
+              existing.lastUpdated = Date.now();
+              existing.last_tested_date = new Date().toISOString();
+              if (status === 'Mastered') {
+                existing.lastError = null;
+                existing.confidenceScore = 1.0;
+                const nextStreak = (existing.streak_count || 0) + 1;
+                existing.streak_count = nextStreak;
+                existing.retention_level = nextStreak >= 3 ? 'PERMANENT_LOCK' : 'FRESH';
+              } else {
+                existing.lastError = u.last_error || existing.lastError;
+                existing.streak_count = 0;
+                existing.retention_level = 'DECAYED';
+              }
+            } else {
+              const nextStreak = status === 'Mastered' ? 1 : 0;
+              updated.push({
+                concept: conceptName,
+                topic: u.topic || 'General',
+                status,
+                lastUpdated: Date.now(),
+                last_tested_date: new Date().toISOString(),
+                streak_count: nextStreak,
+                retention_level: status === 'Mastered' ? 'FRESH' : 'DECAYED',
+                lastError: status === 'Mastered' ? null : (u.last_error || null),
+                confidenceScore: status === 'Mastered' ? 1.0 : 0.6
+              });
+            }
+          });
+          try {
+            localStorage.setItem('examix_concept_memory', JSON.stringify(updated));
+            localStorage.setItem('student_profile.json', JSON.stringify({
+              updatedAt: new Date().toISOString(),
+              conceptMemory: updated
+            }));
+          } catch (e) {}
+          return updated;
+        });
+      }
+
+      return reply;
+    } catch (err: any) {
+      console.error('Screen-off voice query error:', err);
+      return 'Voice connection me thoda issue aaya. Ek baar phir boliye.';
+    }
+  };
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [conceptMemory, setConceptMemory] = useState<ConceptMastery[]>(() => {
     try {
       const saved = localStorage.getItem('examix_concept_memory');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
     } catch (e) {
       console.error('Error loading concept memory', e);
     }
-    return [];
+    return DEFAULT_CONCEPT_MEMORY;
   });
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [showBottomGlow, setShowBottomGlow] = useState(false);
@@ -614,7 +921,7 @@ export default function App() {
     setHasNewResponseBelow(false);
   };
 
-  const handleExportChat = async () => {
+  const handleExportChat = async (customSubject?: string, customTitle?: string) => {
     if (!messages || messages.length === 0) {
       showToast('No messages in this chat to export yet.');
       return;
@@ -622,13 +929,44 @@ export default function App() {
     setIsExportingPDF(true);
     showToast('Generating Study Notes PDF...');
     try {
-      await exportChatToPDF(currentSession, messages);
+      await exportChatToPDF(currentSession, messages, customSubject, customTitle);
       showToast('Study Notes PDF downloaded successfully!');
+      setShowPdfSlideModal(false);
     } catch (err: any) {
       console.error('Failed to export PDF:', err);
       showToast('Failed to export PDF. Please try again.');
     } finally {
       setIsExportingPDF(false);
+    }
+  };
+
+  const handleImportAndSendNotes = async ({
+    files,
+    userPrompt,
+    analysisPreset,
+    launchVoiceTutor
+  }: {
+    files: UploadedNoteFile[];
+    userPrompt: string;
+    analysisPreset: string;
+    launchVoiceTutor?: boolean;
+  }) => {
+    const newAttachments: Attachment[] = files.map((f) => ({
+      id: f.id,
+      name: f.name,
+      size: f.size,
+      type: f.type,
+      isImage: !f.isPdf,
+      dataUrl: f.dataUrl
+    }));
+
+    showToast(`Sending ${files.length > 0 ? `${files.length} document(s)` : 'notes'} to Examix AI...`);
+    await handleSend(userPrompt, false, newAttachments);
+
+    if (launchVoiceTutor) {
+      setTimeout(() => {
+        setShowVoiceModal(true);
+      }, 900);
     }
   };
 
@@ -719,6 +1057,24 @@ export default function App() {
       setCurrentSessionId(null);
     }
     showToast('Chat removed.');
+  };
+
+  const updateSessionTag = (sessionId: string, newTag: string) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id === sessionId) {
+          return {
+            ...s,
+            tag: newTag,
+            updatedAt: Date.now()
+          };
+        }
+        return s;
+      })
+    );
+    setActiveTagMenuSessionId(null);
+    setIsHeaderTagMenuOpen(false);
+    showToast(`Tagged as ${newTag}`);
   };
 
   const triggerFileUpload = () => {
@@ -870,14 +1226,30 @@ export default function App() {
     const fileArray = Array.from(files);
     
     fileArray.forEach((file) => {
-      if (file.size > 5 * 1024 * 1024) {
-        showToast(`File ${file.name} is too large. Please keep files under 5MB.`);
+      if (file.size > 25 * 1024 * 1024) {
+        showToast(`File ${file.name} is too large. Please keep files under 25MB.`);
         return;
       }
 
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
       const isImage = file.type.startsWith('image/');
       
-      if (isImage) {
+      if (isPdf) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const newAttachment: Attachment = {
+            id: Math.random().toString(36).substring(2, 9),
+            name: file.name,
+            size: file.size,
+            type: 'application/pdf',
+            isImage: false,
+            dataUrl
+          };
+          setPendingAttachments((prev) => [...prev, newAttachment]);
+        };
+        reader.readAsDataURL(file);
+      } else if (isImage) {
         // Compress image using canvas
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -959,13 +1331,15 @@ export default function App() {
 
     if (!targetSessionId) {
       const newId = 'chat_' + Date.now();
+      const detectedTag = detectSubjectTag(messageText);
       const newSession: ChatSession = {
         id: newId,
         title: 'New Session',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [sysMessage],
-        modelId: selectedModel
+        modelId: selectedModel,
+        tag: detectedTag
       };
       updatedSessionList = [newSession, ...updatedSessionList];
       setSessions(updatedSessionList);
@@ -989,9 +1363,14 @@ export default function App() {
     setPendingAttachments((prev) => prev.filter((att) => att.id !== id));
   };
 
-  const handleSend = async (customPrompt?: string, isHidden: boolean = false) => {
+  const handleSend = async (
+    customPrompt?: string,
+    isHidden: boolean = false,
+    overrideAttachments?: Attachment[]
+  ) => {
     const rawText = (customPrompt ?? inputValue).trim();
-    const hasAttachments = pendingAttachments.length > 0;
+    const effectiveAttachments = overrideAttachments || pendingAttachments;
+    const hasAttachments = effectiveAttachments.length > 0;
 
     if (!rawText && !hasAttachments) return;
 
@@ -1001,15 +1380,17 @@ export default function App() {
         ? 'Please analyze these attached study notes, formulas, or questions in detail and explain step-by-step.'
         : '');
 
-    const textAttachments = pendingAttachments.filter(a => a.textContent);
+    const textAttachments = effectiveAttachments.filter(a => a.textContent);
     if (textAttachments.length > 0) {
       promptText += '\n\n' + textAttachments.map(a => `--- [Attached File: ${a.name}] ---\n${a.textContent}\n----------------`).join('\n\n');
     }
 
-    const imageAttachments = pendingAttachments.filter((att) => att.isImage && att.dataUrl);
+    const mediaAttachments = effectiveAttachments.filter(
+      (att) => (att.isImage || att.type === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf')) && att.dataUrl
+    );
     
     // Add textual descriptions of markers so the AI knows exactly where the user clicked
-    const markerDescriptions = imageAttachments.filter(a => a.markers && a.markers.length > 0)
+    const markerDescriptions = mediaAttachments.filter(a => a.markers && a.markers.length > 0)
       .map(a => {
         const marks = a.markers!.map(m => `${m.label} at (X:${m.x.toFixed(1)}%, Y:${m.y.toFixed(1)}%)`).join(', ');
         return `Annotations on image "${a.name}": ${marks}`;
@@ -1019,9 +1400,9 @@ export default function App() {
       promptText += '\n\n[USER ANNOTATIONS ON UPLOADED IMAGES]\n' + markerDescriptions.join('\n');
     }
 
-    const attachedImages = imageAttachments.map((att) => ({
+    const attachedImages = mediaAttachments.map((att) => ({
       data: att.dataUrl,
-      mimeType: att.type,
+      mimeType: att.type || (att.isImage ? 'image/jpeg' : 'application/pdf'),
       name: att.name,
       markers: att.markers
     }));
@@ -1038,16 +1419,18 @@ export default function App() {
     let updatedSessionList = [...sessions];
 
     if (!targetSessionId) {
-      // Create new session with smart title
+      // Create new session with smart title and auto-detected subject tag
       const newId = 'chat_' + Date.now();
       const firstTitle = isHidden ? `${activeMode} Session` : (promptText.length > 38 ? promptText.substring(0, 38) + '...' : promptText);
+      const detectedTag = detectSubjectTag(promptText);
       const newSession: ChatSession = {
         id: newId,
         title: firstTitle || 'Study Session',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [newUserMessage],
-        modelId: selectedModel
+        modelId: selectedModel,
+        tag: detectedTag
       };
 
       updatedSessionList = [newSession, ...updatedSessionList];
@@ -1080,29 +1463,18 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const data = await safeFetchJson<ChatApiResponse>('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: currentMessagesForAPI,
           model: selectedModel,
           memory: conceptMemory,
+          cognitive_graph: loadLocalCognitiveGraph(),
           mode: activeMode
         })
       });
 
-      if (!response.ok) {
-        let errorMsg = `Server returned ${response.status}`;
-        try {
-          const errData = await response.json();
-          if (errData.error) errorMsg = errData.error;
-        } catch (e) {
-          // Ignore JSON parse errors for non-JSON responses
-        }
-        throw new Error(errorMsg);
-      }
-
-      const data = await response.json();
       const resolvedModelName = data.model
         ? AVAILABLE_MODELS.find((m) => m.id === data.model)?.name || data.model
         : currentModelDef.name;
@@ -1157,13 +1529,39 @@ export default function App() {
       }
 
       if (updates.length > 0) {
+        // Update Cognitive Graph
+        try {
+          const currentGraph = loadLocalCognitiveGraph();
+          updates.forEach(u => {
+            const conceptName = u.concept_evaluated || u.concept;
+            if (conceptName) {
+              applyDiagnosticUpdate(currentGraph, {
+                concept_id: conceptName.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+                concept_name: conceptName,
+                topic: u.topic || 'General',
+                is_correct: u.status === 'MASTERED' || u.status === 'Mastered',
+                traps_triggered: u.last_error ? [u.last_error] : [],
+                confidence: u.status === 'MASTERED' || u.status === 'Mastered' ? 1.0 : (u.status === 'CRITICAL_WEAKNESS' ? 0.3 : 0.6)
+              });
+            }
+          });
+          saveLocalCognitiveGraph(currentGraph);
+
+          const isAutoSync = localStorage.getItem('examix_auto_sync_drive') !== 'false';
+          if (isAutoSync) {
+            syncToDrive(currentGraph).catch(() => {});
+          }
+        } catch (e) {
+          console.error('Failed to update cognitive graph', e);
+        }
+
         setConceptMemory(prev => {
           const newMemory = [...prev];
           updates.forEach(u => {
             const conceptName = u.concept_evaluated || u.concept;
             let status = u.status;
             
-            // Map new upper case formats to UI formats
+            // Map uppercase formats to UI formats
             if (status === 'MASTERED') status = 'Mastered';
             if (status === 'REVISION_NEEDED') status = 'Needs Revision';
             if (status === 'CRITICAL_WEAKNESS') status = 'Critical Weakness';
@@ -1173,9 +1571,42 @@ export default function App() {
             const existing = newMemory.find(m => m.concept.toLowerCase() === conceptName.toLowerCase());
             if (existing) {
               existing.status = status;
+              if (status === 'Mastered') {
+                existing.lastError = null;
+                existing.confidenceScore = 1.0;
+                const nextStreak = (existing.streak_count || 0) + 1;
+                existing.streak_count = nextStreak;
+                existing.retention_level = nextStreak >= 3 ? 'PERMANENT_LOCK' : 'FRESH';
+                existing.last_tested_date = new Date().toISOString();
+                if (!toastAlerts.length) {
+                  showToast(nextStreak >= 3 
+                    ? `🛡️ Permanent Lock: ${conceptName} locked with Gold Shield (3+ streak)!` 
+                    : `🎯 Concept Mastered: ${conceptName} is now 100/100 (🔥 Streak: ${nextStreak}/3)!`);
+                }
+              } else {
+                existing.lastError = u.last_error || existing.lastError || 'Needs Socratic drill';
+                existing.confidenceScore = status === 'Critical Weakness' ? 0.3 : 0.6;
+                existing.streak_count = 0; // reset on error as per Ebbinghaus rule
+                existing.retention_level = 'DECAYED';
+                existing.last_tested_date = new Date().toISOString();
+              }
               existing.lastUpdated = Date.now();
             } else {
-              newMemory.push({ concept: conceptName, status, lastUpdated: Date.now() });
+              const initialStreak = status === 'Mastered' ? 1 : 0;
+              newMemory.push({ 
+                concept: conceptName, 
+                topic: u.topic || 'General',
+                status, 
+                lastUpdated: Date.now(),
+                last_tested_date: new Date().toISOString(),
+                streak_count: initialStreak,
+                retention_level: status === 'Mastered' ? 'FRESH' : 'DECAYED',
+                lastError: status === 'Mastered' ? null : (u.last_error || null),
+                confidenceScore: status === 'Mastered' ? 1.0 : (status === 'Critical Weakness' ? 0.3 : 0.6)
+              });
+              if (status === 'Mastered' && !toastAlerts.length) {
+                showToast(`🎯 Concept Mastered: ${conceptName} is now 100/100!`);
+              }
             }
           });
           return newMemory;
@@ -1241,10 +1672,44 @@ export default function App() {
 
   const canSend = inputValue.trim().length > 0 || pendingAttachments.length > 0;
 
-  // Filtered sessions for sidebar
-  const filteredSessions = sessions.filter((s) =>
-    s.title.toLowerCase().includes(chatSearchQuery.toLowerCase())
+  // Extract unique custom tags created by user across all sessions
+  const userCustomTags = Array.from(
+    new Set(
+      sessions
+        .map((s) => s.tag)
+        .filter((t): t is string => Boolean(t && !PRESET_SUBJECTS.some((p) => p.id.toLowerCase() === t.toLowerCase())))
+    )
   );
+
+  const allSubjectFilterTags = [
+    'All',
+    ...PRESET_SUBJECTS.map((p) => p.id),
+    ...userCustomTags
+  ];
+
+  const getSubjectCount = (tagId: string) => {
+    if (tagId === 'All') return sessions.length;
+    return sessions.filter((s) => {
+      const effectiveTag = s.tag || detectSubjectTag(s.title + ' ' + (s.messages[0]?.content || ''));
+      return effectiveTag.toLowerCase() === tagId.toLowerCase();
+    }).length;
+  };
+
+  // Filtered sessions for sidebar (by Subject Tag and Search Query)
+  const filteredSessions = sessions.filter((s) => {
+    const effectiveTag = s.tag || detectSubjectTag(s.title + ' ' + (s.messages[0]?.content || ''));
+    const matchesTag =
+      selectedTagFilter === 'All' || effectiveTag.toLowerCase() === selectedTagFilter.toLowerCase();
+
+    const query = chatSearchQuery.trim().toLowerCase();
+    if (!query) return matchesTag;
+
+    const matchesTitle = s.title.toLowerCase().includes(query);
+    const matchesTagText = effectiveTag.toLowerCase().includes(query);
+    const matchesMessages = s.messages.some((m) => m.content.toLowerCase().includes(query));
+
+    return matchesTag && (matchesTitle || matchesTagText || matchesMessages);
+  });
 
   return (
     <div
@@ -1252,7 +1717,7 @@ export default function App() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onPaste={handlePaste}
-      className="relative flex h-screen w-full overflow-hidden bg-[#0D0D0D] text-white font-sans selection:bg-[#4ADE80]/30"
+      className="relative flex h-screen w-full overflow-hidden bg-[#081511] text-white font-sans selection:bg-[#4ADE80]/30"
     >
       {/* Hidden File Input */}
       <input
@@ -1276,32 +1741,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Full Image Lightbox Modal */}
+      {/* Full Image & Diagram Lightbox Modal */}
       {activeLightboxImg && (
-        <div
-          onClick={() => setActiveLightboxImg(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md cursor-pointer"
-        >
-          <div className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/20">
-            <button
-              onClick={() => setActiveLightboxImg(null)}
-              className="absolute top-3 right-3 rounded-full bg-black/70 p-2 text-white hover:bg-black transition-colors"
-            >
-              <X size={20} />
-            </button>
-            <img
-              src={activeLightboxImg}
-              alt="Expanded view"
-              className="max-h-[85vh] max-w-full object-contain"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        </div>
+        <ImageLightboxModal
+          src={activeLightboxImg}
+          alt="Expanded study diagram"
+          onClose={() => setActiveLightboxImg(null)}
+        />
       )}
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-6 right-6 z-50 rounded-2xl border border-[#4ADE80]/40 bg-[#1A1A1A]/95 px-4 py-3 text-sm text-[#4ADE80] shadow-2xl backdrop-blur-xl animate-fade-in flex items-center gap-2">
+        <div className="fixed top-6 right-6 z-50 rounded-2xl border border-[#4ADE80]/40 bg-[#0D1C17]/95 px-4 py-3 text-sm text-[#4ADE80] shadow-2xl backdrop-blur-xl animate-fade-in flex items-center gap-2">
           <Sparkles size={16} />
           <span>{toastMessage}</span>
         </div>
@@ -1318,12 +1769,12 @@ export default function App() {
       {/* Gemini-Style Collapsible Sidebar (3 lines / hamburger menu drawer) */}
       <aside
         id="gemini-chat-sidebar"
-        className={`fixed md:static inset-y-0 left-0 z-40 flex w-72 sm:w-80 flex-col border-r border-white/10 bg-[#121214] transition-transform duration-300 ease-in-out ${
+        className={`fixed md:static inset-y-0 left-0 z-40 flex w-72 sm:w-80 flex-col border-r border-[#1C382E]/70 bg-[#0A1713] transition-transform duration-300 ease-in-out ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-72 lg:w-80'
         }`}
       >
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-4 border-b border-white/5">
+        <div className="flex items-center justify-between p-4 border-b border-[#1C382E]/50">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#4ADE80] shadow-[0_0_12px_rgba(74,222,128,0.4)]">
               <Camera size={18} className="text-black" />
@@ -1346,7 +1797,7 @@ export default function App() {
           <button
             id="sidebar-new-chat-btn"
             onClick={createNewChat}
-            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white transition-all hover:border-[#4ADE80]/50 hover:bg-[#4ADE80]/10 active:scale-[0.98]"
+            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-2xl border border-[#1C382E] bg-[#0D1C17] px-4 py-3 text-sm font-medium text-white transition-all hover:border-[#4ADE80]/50 hover:bg-[#12271F] active:scale-[0.98]"
           >
             <div className="flex items-center gap-2.5">
               <Plus size={18} className="text-[#4ADE80]" />
@@ -1359,40 +1810,108 @@ export default function App() {
         </div>
 
         {/* Search Chats */}
-        <div className="px-3 pb-2">
-          <div className="relative flex items-center rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-xs text-gray-300">
+        <div className="px-3 pb-1.5">
+          <div className="relative flex items-center rounded-xl border border-[#1C382E]/60 bg-[#081511]/70 px-3 py-2 text-xs text-gray-300">
             <Search size={14} className="text-gray-500 mr-2 shrink-0" />
             <input
               type="text"
               value={chatSearchQuery}
               onChange={(e) => setChatSearchQuery(e.target.value)}
-              placeholder="Search saved chats..."
+              placeholder="Search saved chats or tags..."
               className="w-full bg-transparent outline-none placeholder:text-gray-500 text-xs"
             />
             {chatSearchQuery && (
-              <button onClick={() => setChatSearchQuery('')} className="text-gray-500 hover:text-white">
+              <button onClick={() => setChatSearchQuery('')} className="text-gray-500 hover:text-white cursor-pointer">
                 <X size={12} />
               </button>
             )}
           </div>
         </div>
 
+        {/* Subject Tag Filter Bar */}
+        <div className="px-3 pb-2.5 pt-1 border-b border-[#1C382E]/50">
+          <div className="flex items-center justify-between px-1 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            <span className="flex items-center gap-1.5">
+              <Filter size={11} className="text-[#4ADE80]" />
+              <span>Subjects</span>
+            </span>
+            {selectedTagFilter !== 'All' && (
+              <button
+                onClick={() => setSelectedTagFilter('All')}
+                className="text-[10px] font-medium text-emerald-400 hover:underline cursor-pointer"
+              >
+                Show All
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {allSubjectFilterTags.map((tagId) => {
+              const count = getSubjectCount(tagId);
+              const isSelected = selectedTagFilter.toLowerCase() === tagId.toLowerCase();
+              const config = tagId === 'All' ? null : getSubjectTagStyle(tagId);
+
+              return (
+                <button
+                  key={tagId}
+                  onClick={() => setSelectedTagFilter(tagId)}
+                  className={`group flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-all ${
+                    isSelected
+                      ? tagId === 'All'
+                        ? 'bg-[#4ADE80] text-black font-bold shadow-[0_0_10px_rgba(74,222,128,0.4)]'
+                        : `${config?.activeFilterBg} ${config?.activeFilterText} font-bold shadow-xs`
+                      : 'bg-white/5 text-gray-400 border border-white/10 hover:border-white/20 hover:text-white'
+                  }`}
+                  title={`Filter by ${tagId}`}
+                >
+                  {tagId !== 'All' && renderSubjectIcon(config?.iconName, 'w-3 h-3')}
+                  <span>{tagId}</span>
+                  <span
+                    className={`rounded-full px-1 py-0.2 text-[9px] font-mono ${
+                      isSelected
+                        ? 'bg-black/20 text-current'
+                        : 'bg-white/10 text-gray-400 group-hover:text-white'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Chat History List */}
         <div className="flex-1 overflow-y-auto px-3 py-1 scrollbar-thin">
-          <div className="mb-2 px-2 text-[11px] font-semibold tracking-wider text-gray-500 uppercase">
-            Recent Conversations
+          <div className="mb-2 px-2 flex items-center justify-between text-[11px] font-semibold tracking-wider text-gray-500 uppercase">
+            <span>Conversations</span>
+            {selectedTagFilter !== 'All' && (
+              <span className="text-[10px] text-[#4ADE80] lowercase font-normal">
+                ({filteredSessions.length} in {selectedTagFilter})
+              </span>
+            )}
           </div>
 
           {filteredSessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center text-gray-500 px-4">
               <MessageSquare size={28} className="mb-2 opacity-40" />
-              <p className="text-xs">No saved chats found.</p>
-              <p className="text-[11px] text-gray-600 mt-1">Start a conversation to save it here automatically.</p>
+              <p className="text-xs">No chats found for this filter.</p>
+              {selectedTagFilter !== 'All' && (
+                <button
+                  onClick={() => setSelectedTagFilter('All')}
+                  className="mt-2 text-xs text-[#4ADE80] hover:underline cursor-pointer"
+                >
+                  Clear Subject Filter
+                </button>
+              )}
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {filteredSessions.map((s) => {
                 const isActive = s.id === currentSessionId;
+                const effectiveTag = s.tag || detectSubjectTag(s.title + ' ' + (s.messages[0]?.content || ''));
+                const tagStyle = getSubjectTagStyle(effectiveTag);
+
                 return (
                   <div
                     key={s.id}
@@ -1401,27 +1920,72 @@ export default function App() {
                       setActiveMode('Standard Mode');
                       setIsSidebarOpen(false);
                     }}
-                    className={`group relative flex cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-xs transition-all ${
+                    className={`group relative flex cursor-pointer flex-col rounded-xl p-2.5 text-xs transition-all ${
                       isActive
                         ? 'bg-[#4ADE80]/15 text-white font-semibold border border-[#4ADE80]/30 shadow-[0_0_15px_rgba(74,222,128,0.1)]'
                         : 'text-gray-300 hover:bg-white/5 hover:text-white border border-transparent'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 pr-6">
-                      <MessageSquare
-                        size={14}
-                        className={`shrink-0 ${isActive ? 'text-[#4ADE80]' : 'text-gray-500 group-hover:text-gray-300'}`}
-                      />
-                      <span className="truncate">{s.title}</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0 mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MessageSquare
+                          size={13}
+                          className={`shrink-0 ${isActive ? 'text-[#4ADE80]' : 'text-gray-500 group-hover:text-gray-300'}`}
+                        />
+                        <span className="truncate font-medium">{s.title}</span>
+                      </div>
+
+                      {/* Actions on hover */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTagMenuSessionId(activeTagMenuSessionId === s.id ? null : s.id);
+                          }}
+                          className="rounded-lg p-1 text-gray-400 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+                          title="Change subject tag"
+                        >
+                          <Tag size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => deleteSession(e, s.id)}
+                          className="rounded-lg p-1 text-gray-500 hover:bg-red-500/20 hover:text-red-400 transition-all cursor-pointer"
+                          title="Delete chat"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
 
-                    <button
-                      onClick={(e) => deleteSession(e, s.id)}
-                      className="absolute right-2 opacity-0 group-hover:opacity-100 rounded-lg p-1 text-gray-500 hover:bg-red-500/20 hover:text-red-400 transition-all"
-                      title="Delete chat"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="flex items-center justify-between text-[10px] text-gray-500 mt-0.5">
+                      <span>{s.messages.length} msg{s.messages.length !== 1 ? 's' : ''}</span>
+
+                      {/* Subject Tag Pill with Click to Change Dropdown */}
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTagMenuSessionId(activeTagMenuSessionId === s.id ? null : s.id);
+                          }}
+                          className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 border text-[10px] font-semibold transition-all cursor-pointer ${
+                            tagStyle.badgeBg
+                          } ${tagStyle.badgeText} ${tagStyle.badgeBorder} hover:scale-105`}
+                          title="Click to change subject tag"
+                        >
+                          {renderSubjectIcon(tagStyle.iconName, 'w-2.5 h-2.5')}
+                          <span>{effectiveTag}</span>
+                        </button>
+
+                        {activeTagMenuSessionId === s.id && (
+                          <TagPickerDropdown
+                            currentTag={effectiveTag}
+                            onSelectTag={(newTag) => updateSessionTag(s.id, newTag)}
+                            onClose={() => setActiveTagMenuSessionId(null)}
+                            customTags={userCustomTags}
+                          />
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -1430,59 +1994,68 @@ export default function App() {
         </div>
 
         {/* Sidebar Footer */}
-        <div className="p-3 border-t border-white/5 text-xs text-gray-400 flex items-center justify-between">
+        <div className="p-3 border-t border-[#1C382E]/50 text-xs text-gray-400 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-[#4ADE80] animate-pulse"></span>
-            <span className="text-[11px] text-gray-400">Gemini Online</span>
+            <span className="text-[11px] text-gray-300 font-medium">Examix AI Online</span>
           </div>
-          <span className="text-[11px] text-gray-500">{sessions.length} chats saved</span>
+          <button
+            id="sidebar-settings-btn"
+            onClick={() => setShowSettingsModal(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-[#1C382E] bg-[#0D1C17] text-gray-300 transition-all hover:border-[#4ADE80]/50 hover:bg-[#12271F] hover:text-[#4ADE80] active:scale-95 cursor-pointer shadow-xs"
+            title="API Keys & Settings"
+            aria-label="Settings"
+          >
+            <Settings size={17} />
+          </button>
         </div>
       </aside>
 
       {/* Main Conversation Canvas */}
-      <div className={`flex ${isCanvasOpen ? 'hidden lg:flex lg:flex-1' : 'flex-1'} flex-col h-screen overflow-hidden transition-all duration-300`}>
-        {/* Top Header with Hamburger, Model Selector & Controls */}
-        <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-white/5 bg-[#0D0D0D]/90 px-4 sm:px-6 backdrop-blur-md">
-          <div className="flex items-center gap-3">
-            {/* 3 Lines Hamburger Menu Button */}
+      <div className={`flex ${isCanvasOpen ? 'hidden lg:flex lg:flex-1' : 'flex-1'} flex-col h-screen overflow-hidden transition-all duration-300 bg-[#081511]`}>
+        {/* Top Header with Hamburger, Compact Model Selector & Controls */}
+        <header className="relative z-30 flex h-14 sm:h-16 shrink-0 items-center justify-between border-b border-[#1C382E]/80 bg-[#081511]/95 px-2.5 sm:px-4 md:px-6 backdrop-blur-md gap-1.5 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+            {/* Hamburger Menu Button */}
             <button
-              id="gemini-hamburger-menu-btn"
+              id="examix-hamburger-menu-btn"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-300 transition-all hover:border-[#4ADE80]/40 hover:bg-white/10 hover:text-white active:scale-95"
+              className="flex h-8.5 w-8.5 sm:h-9 sm:w-9 cursor-pointer items-center justify-center rounded-xl border border-[#1C382E] bg-[#0D1C17] text-gray-300 transition-all hover:border-[#4ADE80]/40 hover:bg-[#12271F] hover:text-white active:scale-95 shrink-0"
               title="Toggle Chat Sidebar"
+              aria-label="Toggle Sidebar"
             >
-              <Menu size={18} />
+              <Menu size={17} />
             </button>
 
-            {/* Authentic Gemini Pill Model Selector Dropdown */}
-            <div className="relative flex items-center" ref={dropdownRef}>
+            {/* Compact Model Selector Dropdown: [ ✦ 3.7 Flash ˅ ] */}
+            <div className="relative flex items-center shrink-0" ref={dropdownRef}>
               <button
-                id="gemini-model-selector-btn"
+                id="examix-model-selector-btn"
                 onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="group flex cursor-pointer items-center gap-2 rounded-full border border-[#333538] bg-[#1E1F20] px-3.5 py-1.5 text-xs sm:text-sm font-medium text-white shadow-sm transition-all hover:border-[#4B4E52] hover:bg-[#282A2C] active:scale-98"
-                title="Select AI Model Architecture"
+                className="group flex cursor-pointer items-center gap-1.5 rounded-full border border-[#1C382E] bg-[#0D1C17] px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-semibold text-white shadow-xs transition-all hover:border-[#4ADE80]/40 hover:bg-[#12271F] active:scale-95 shrink-0"
+                title="Switch AI Model"
+                aria-label="Switch AI Model"
               >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles size={14} className="text-[#4ADE80]" />
-                  <span className="font-semibold tracking-tight text-white">Examix</span>
-                  <span className="text-gray-300 font-normal text-xs sm:text-sm">· {currentModelDef.name}</span>
-                </div>
+                <Sparkles size={13} className="text-[#4ADE80] shrink-0" />
+                <span className="truncate tracking-tight font-semibold">
+                  {currentModelDef.name.replace(/^Gemini\s+/i, '')}
+                </span>
                 <ChevronDown
-                  size={13}
-                  className={`text-gray-400 transition-transform duration-200 group-hover:text-white ${isModelDropdownOpen ? 'rotate-180' : ''}`}
+                  size={12}
+                  className={`text-gray-400 transition-transform duration-200 group-hover:text-white shrink-0 ${isModelDropdownOpen ? 'rotate-180' : ''}`}
                 />
               </button>
 
-              {/* Minimalist Gemini Dropdown Menu */}
+              {/* Minimalist Model Dropdown Menu */}
               {isModelDropdownOpen && (
-                <div className="absolute left-0 top-full mt-2 w-72 sm:w-84 rounded-2xl border border-[#333538] bg-[#1E1F20]/98 p-2 shadow-2xl backdrop-blur-2xl z-50 animate-fade-in">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                <div className="absolute left-0 top-full mt-2 w-72 sm:w-80 rounded-2xl border border-[#1C382E] bg-[#0D1C17]/98 p-2 shadow-2xl backdrop-blur-2xl z-50 animate-fade-in">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-[#1C382E]/60">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                      Gemini Models
+                      AI Models
                     </span>
                     <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Free-tier Operational
+                      Ready
                     </span>
                   </div>
                   <div className="mt-1 space-y-1">
@@ -1528,101 +2101,303 @@ export default function App() {
               )}
             </div>
 
+            {/* Current Session Subject Tag Pill (Desktop only, prevents overflow on mobile) */}
+            {currentSession && (
+              <div className="relative hidden xl:flex items-center shrink-0">
+                {(() => {
+                  const effectiveTag = currentSession.tag || detectSubjectTag(currentSession.title + ' ' + (currentSession.messages[0]?.content || ''));
+                  const tagStyle = getSubjectTagStyle(effectiveTag);
+                  return (
+                    <>
+                      <button
+                        id="header-session-tag-btn"
+                        onClick={() => setIsHeaderTagMenuOpen(!isHeaderTagMenuOpen)}
+                        className={`group flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-xs transition-all hover:scale-[1.02] ${
+                          tagStyle.badgeBg
+                        } ${tagStyle.badgeText} ${tagStyle.badgeBorder}`}
+                        title="Click to change chat subject"
+                      >
+                        {renderSubjectIcon(tagStyle.iconName, 'w-3.5 h-3.5')}
+                        <span>{effectiveTag}</span>
+                        <ChevronDown size={11} className="opacity-70 group-hover:opacity-100 transition-transform" />
+                      </button>
+
+                      {isHeaderTagMenuOpen && (
+                        <TagPickerDropdown
+                          currentTag={effectiveTag}
+                          onSelectTag={(newTag) => updateSessionTag(currentSession.id, newTag)}
+                          onClose={() => setIsHeaderTagMenuOpen(false)}
+                          customTags={userCustomTags}
+                        />
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* Quick New Chat Button (Desktop) */}
             <button
               id="header-new-chat-btn"
               onClick={createNewChat}
-              className="hidden sm:flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-300 transition-all hover:border-[#4ADE80]/40 hover:text-white"
+              className="hidden sm:flex h-8.5 sm:h-9 items-center gap-1.5 rounded-xl border border-[#1C382E] bg-[#0D1C17] px-2 sm:px-2.5 text-xs font-medium text-gray-300 transition-all hover:border-[#4ADE80]/40 hover:bg-[#12271F] hover:text-white shrink-0"
               title="Start a new chat"
             >
               <Plus size={14} className="text-[#4ADE80]" />
-              <span>New chat</span>
+              <span className="hidden xl:inline">New</span>
             </button>
 
             {/* Active Mode Indicator */}
             {activeMode !== 'Standard Mode' && (
-              <div className="flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 px-2 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-[13px] font-semibold text-blue-300 shadow-[0_0_10px_rgba(59,130,246,0.15)] transition-all animate-fade-in whitespace-nowrap">
-                <div className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-                </div>
-                <span className="hidden sm:inline">{activeMode}</span>
-                <span className="sm:hidden">{activeMode.split(' ')[0]}</span>
+              <div className="flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-semibold text-blue-300 shadow-xs transition-all shrink-0">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                <span className="truncate max-w-[70px] sm:max-w-none">{activeMode.replace(' Mode', '')}</span>
                 <button 
                   onClick={() => setActiveMode('Standard Mode')} 
-                  className="ml-0.5 sm:ml-1 hover:text-white transition-colors"
+                  className="ml-0.5 hover:text-white transition-colors cursor-pointer"
                   title="Exit Mode"
                 >
-                  <X size={14} />
+                  <X size={12} />
                 </button>
               </div>
             )}
           </div>
 
           {/* Right Header: Actions & Account Profile */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Share Session Button */}
+          <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 shrink-0">
+            {/* OCR Document Scanner & Handwritten Notes Hub (ICON ONLY) */}
             <button
-              id="header-share-session-btn"
-              onClick={handleShareSession}
-              disabled={messages.length === 0}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
-                messages.length === 0
-                  ? 'border-white/5 bg-white/5 text-gray-500 cursor-not-allowed opacity-50'
-                  : 'border-white/10 bg-[#1A1A1D] text-gray-200 hover:border-[#4ADE80]/50 hover:bg-[#4ADE80]/15 hover:text-[#4ADE80] active:scale-95 cursor-pointer shadow-sm'
-              }`}
-              title={messages.length === 0 ? "Start a chat to share this session" : "Share current study session"}
+              id="header-ocr-scanner-btn"
+              onClick={() => setShowPdfSlideModal(true)}
+              className="flex h-8.5 w-8.5 sm:h-9 sm:w-9 items-center justify-center rounded-xl border border-[#4ADE80]/40 bg-[#0D1C17] text-[#4ADE80] transition-all hover:border-[#4ADE80] hover:bg-[#12271F] hover:text-white active:scale-95 cursor-pointer shadow-xs shrink-0"
+              title="PDF & Study Notes Hub (Import, Export & Share)"
+              aria-label="PDF & Study Notes Hub"
             >
-              <Share2 size={14} className={messages.length > 0 ? "text-[#4ADE80]" : "text-gray-500"} />
-              <span className="hidden sm:inline">Share</span>
-            </button>
-
-            {/* Export Chat as Study Notes PDF Button */}
-            <button
-              id="header-export-chat-btn"
-              onClick={handleExportChat}
-              disabled={isExportingPDF || messages.length === 0}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
-                messages.length === 0
-                  ? 'border-white/5 bg-white/5 text-gray-500 cursor-not-allowed opacity-50'
-                  : 'border-[#4ADE80]/40 bg-[#1A1A1D] text-[#4ADE80] hover:border-[#4ADE80] hover:bg-[#4ADE80]/20 hover:text-white active:scale-95 cursor-pointer shadow-[0_0_12px_rgba(74,222,128,0.15)]'
-              }`}
-              title={messages.length === 0 ? "Start a chat to download PDF revision notes" : "Download current chat as high-yield Exam Quick Revision Sheet PDF"}
-            >
-              {isExportingPDF ? (
-                <>
-                  <Loader2 size={14} className="animate-spin text-[#4ADE80]" />
-                  <span className="hidden sm:inline">Exporting PDF...</span>
-                </>
-              ) : (
-                <>
-                  <Download size={14} className={messages.length > 0 ? "text-[#4ADE80]" : "text-gray-500"} />
-                  <span className="hidden sm:inline">PDF Notes</span>
-                </>
-              )}
+              <ScanText size={15} className="text-[#4ADE80]" />
             </button>
 
             {/* Concept Memory Dashboard Button */}
             <button
               id="toggle-mastery-dashboard-btn"
               onClick={() => setShowMasteryModal(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#1A1A1D] px-3 py-1.5 text-xs font-semibold text-gray-200 transition-all hover:border-[#4ADE80]/50 hover:bg-[#4ADE80]/15 hover:text-[#4ADE80] active:scale-95 shadow-sm"
-              title="View your Knowledge Graph & Concept Memory"
+              className="flex h-8.5 w-8.5 sm:h-9 sm:w-auto items-center justify-center gap-1.5 rounded-xl border border-[#1C382E] bg-[#0D1C17] px-2 sm:px-2.5 text-xs font-medium text-gray-300 transition-all hover:border-[#4ADE80]/50 hover:bg-[#12271F] hover:text-[#4ADE80] active:scale-95 shadow-xs shrink-0 cursor-pointer"
+              title="Concept Memory & Knowledge Graph"
+              aria-label="Concept Memory"
             >
-              <BrainCircuit size={14} className="text-[#4ADE80]" />
-              <span className="hidden sm:inline">Memory</span>
+              <BrainCircuit size={15} className="text-[#4ADE80]" />
+              <span className="hidden lg:inline text-xs">Memory</span>
             </button>
 
-            {/* User Profile Avatar */}
-            <button
-              id="account-profile-btn"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#4ADE80] to-[#1A1A1A] p-[1px] shadow-[0_0_15px_rgba(74,222,128,0.2)] transition-transform hover:scale-105"
-              title="Student Account"
-            >
-              <div className="flex h-full w-full items-center justify-center rounded-full bg-[#1A1A1A]">
-                <span className="text-xs font-bold text-white">JD</span>
-              </div>
-            </button>
+            {/* User Profile Avatar with Dynamic Google Auth State & Dropdown */}
+            <div className="relative shrink-0">
+              <button
+                id="account-profile-btn"
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className={`relative flex h-8.5 w-8.5 sm:h-9 sm:w-9 items-center justify-center rounded-full transition-all hover:scale-105 shrink-0 cursor-pointer ${
+                  currentUserProfile?.photoURL
+                    ? 'p-[1.5px] bg-gradient-to-tr from-[#4ADE80] via-emerald-400 to-teal-300 shadow-[0_0_12px_rgba(74,222,128,0.3)]'
+                    : currentUserProfile
+                    ? 'p-[1.5px] bg-gradient-to-tr from-[#4ADE80] to-[#1C382E] shadow-xs'
+                    : 'bg-[#1E293B] border border-white/15 text-gray-300 hover:text-white shadow-xs'
+                }`}
+                title={currentUserProfile?.displayName ? `${currentUserProfile.displayName} (Google Account)` : "Student Account & Settings"}
+                aria-label="Student Account"
+              >
+                {currentUserProfile?.photoURL ? (
+                  <>
+                    <img
+                      src={currentUserProfile.photoURL}
+                      alt={currentUserProfile.displayName || 'User'}
+                      className="h-full w-full rounded-full object-cover bg-[#0D1C17]"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#0D1C17] bg-[#4ADE80]" />
+                  </>
+                ) : currentUserProfile ? (
+                  <div className="flex h-full w-full items-center justify-center rounded-full bg-[#0D1C17]">
+                    <span className="text-[11px] sm:text-xs font-bold text-[#4ADE80]">
+                      {currentUserProfile.displayName
+                        ? currentUserProfile.displayName
+                            .split(' ')
+                            .map((n) => n[0])
+                            .join('')
+                            .substring(0, 2)
+                            .toUpperCase()
+                        : 'ST'}
+                    </span>
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#0D1C17] bg-[#4ADE80]" />
+                  </div>
+                ) : (
+                  <UserIcon size={16} className="text-gray-300" />
+                )}
+              </button>
+
+              {showProfileMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowProfileMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-72 rounded-3xl border border-[#1C382E] bg-[#0D1C17] p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+                    {/* User Info Header */}
+                    <div className="px-3.5 py-3 border-b border-[#1C382E]/70 mb-1.5 bg-white/[0.02] rounded-2xl">
+                      <div className="flex items-center gap-3">
+                        {currentUserProfile?.photoURL ? (
+                          <div className="relative h-10 w-10 shrink-0 rounded-full p-[1px] bg-gradient-to-tr from-[#4ADE80] to-teal-300">
+                            <img
+                              src={currentUserProfile.photoURL}
+                              alt="Profile"
+                              className="h-full w-full rounded-full object-cover bg-[#0D1C17]"
+                              referrerPolicy="no-referrer"
+                            />
+                            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-[#0D1C17] bg-[#4ADE80]" />
+                          </div>
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1E293B] text-gray-400">
+                            <UserIcon size={20} />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-bold text-white">
+                            {currentUserProfile?.displayName || 'Guest Student / Aspirant'}
+                          </div>
+                          <div className="truncate text-[10px] text-gray-400 font-mono">
+                            {currentUserProfile?.email || 'Not connected to Google'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status pill */}
+                      <div className="mt-2.5 flex items-center justify-between pt-2 border-t border-white/5 text-[10px]">
+                        <span className="text-gray-400">Mastery Vault</span>
+                        {currentUserProfile ? (
+                          <span className="inline-flex items-center gap-1 font-semibold text-[#4ADE80]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#4ADE80] animate-pulse"></span>
+                            <span>Live Synced (📁 {VAULT_FOLDER_NAME})</span>
+                          </span>
+                        ) : (
+                          <span className="text-amber-400 font-medium">Guest Mode</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Menu Actions */}
+                    <div className="space-y-0.5">
+                      <button
+                        id="profile-menu-account-vault-btn"
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setSettingsInitialTab('account');
+                          setShowSettingsModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-white hover:bg-[#12271F] hover:text-[#4ADE80] transition-colors cursor-pointer"
+                      >
+                        <Cloud size={14} className="text-[#4ADE80]" />
+                        <span>Google Account & Mastery Vault</span>
+                      </button>
+
+                      <button
+                        id="profile-menu-settings-btn"
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setSettingsInitialTab('api_keys');
+                          setShowSettingsModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-gray-200 hover:bg-[#12271F] hover:text-[#4ADE80] transition-colors cursor-pointer"
+                      >
+                        <Settings size={14} className="text-[#4ADE80]" />
+                        <span>API Keys & Preferences</span>
+                      </button>
+
+                      <button
+                        id="profile-menu-hotwords-btn"
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setShowHotwordModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-gray-200 hover:bg-[#12271F] hover:text-[#4ADE80] transition-colors cursor-pointer"
+                      >
+                        <Mic size={14} className="text-[#4ADE80]" />
+                        <span>Hotword Matrix & Android OS</span>
+                      </button>
+
+                      <button
+                        id="profile-menu-memory-btn"
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setShowMasteryModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-gray-200 hover:bg-[#12271F] hover:text-[#4ADE80] transition-colors cursor-pointer"
+                      >
+                        <BrainCircuit size={14} className="text-[#4ADE80]" />
+                        <span>Concept Knowledge Graph</span>
+                      </button>
+
+                      <button
+                        id="profile-menu-ocr-btn"
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setShowPdfSlideModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-gray-200 hover:bg-[#12271F] hover:text-[#4ADE80] transition-colors cursor-pointer"
+                      >
+                        <ScanText size={14} className="text-[#4ADE80]" />
+                        <span>Handwritten Notes Scanner</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Auth Trigger Footer */}
+                    <div className="mt-2 pt-2 border-t border-[#1C382E]/70">
+                      {currentUserProfile ? (
+                        <button
+                          id="profile-menu-signout-btn"
+                          onClick={async () => {
+                            setShowProfileMenu(false);
+                            await logout();
+                            setCurrentUserProfile(null);
+                            showToast('Signed out of Google Account');
+                          }}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/20 transition-all cursor-pointer"
+                        >
+                          <LogOut size={13} />
+                          <span>Sign Out</span>
+                        </button>
+                      ) : (
+                        <button
+                          id="profile-menu-signin-btn"
+                          onClick={async () => {
+                            setShowProfileMenu(false);
+                            try {
+                              const res = await googleSignIn();
+                              if (res?.user) {
+                                setCurrentUserProfile({
+                                  uid: res.user.uid,
+                                  displayName: res.user.displayName,
+                                  email: res.user.email,
+                                  photoURL: res.user.photoURL
+                                });
+                                showToast(`Welcome, ${res.user.displayName || 'Student'}!`);
+                              }
+                            } catch (e: any) {
+                              showToast('Sign in failed: ' + e.message);
+                            }
+                          }}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2 text-xs font-bold text-gray-900 shadow hover:bg-gray-100 transition-all cursor-pointer"
+                        >
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                          </svg>
+                          <span>Sign in with Google</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1768,7 +2543,7 @@ export default function App() {
           <button
             id="jump-to-new-response-btn"
             onClick={scrollToBottom}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full border border-[#4ADE80]/50 bg-[#161618]/95 px-4 py-2 text-xs font-semibold text-white shadow-[0_0_20px_rgba(74,222,128,0.35)] backdrop-blur-md transition-all hover:scale-105 hover:bg-[#1f1f23] active:scale-95 animate-bounce cursor-pointer"
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full border border-[#4ADE80]/50 bg-[#0D1C17]/95 px-4 py-2 text-xs font-semibold text-white shadow-[0_0_20px_rgba(74,222,128,0.35)] backdrop-blur-md transition-all hover:scale-105 hover:bg-[#12271F] active:scale-95 animate-bounce cursor-pointer"
             title="Click to jump down to the new response"
           >
             <span className="relative flex h-2 w-2">
@@ -1781,11 +2556,11 @@ export default function App() {
         )}
 
         {/* Gemini-Style Floating Bottom Input Dock */}
-        <footer className="relative z-30 flex shrink-0 justify-center bg-gradient-to-t from-[#0D0D0D] via-[#0D0D0D]/95 to-transparent px-4 sm:px-8 pb-5 sm:pb-6 pt-2">
+        <footer className="relative z-30 flex shrink-0 justify-center bg-gradient-to-t from-[#081511] via-[#081511]/95 to-transparent px-4 sm:px-8 pb-5 sm:pb-6 pt-2">
           <div className="flex w-full max-w-3xl flex-col items-center gap-2">
             {/* Real-Time Live Voice Input Activity Bar */}
             {isListening && (
-              <div className="flex items-center gap-2.5 rounded-full border border-blue-500/40 bg-[#141923]/95 px-3.5 py-1.5 text-xs font-semibold text-blue-300 shadow-[0_0_25px_rgba(59,130,246,0.35)] backdrop-blur-xl animate-fade-in transition-all">
+              <div className="flex items-center gap-2.5 rounded-full border border-blue-500/40 bg-[#0D1C17]/95 px-3.5 py-1.5 text-xs font-semibold text-blue-300 shadow-[0_0_25px_rgba(59,130,246,0.35)] backdrop-blur-xl animate-fade-in transition-all">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
@@ -1813,14 +2588,18 @@ export default function App() {
             {pendingAttachments.length > 0 && (
               <div
                 id="pending-attachments-tray"
-                className="flex w-full items-center gap-2.5 overflow-x-auto rounded-2xl border border-white/10 bg-[#1A1A1E]/95 p-2.5 shadow-2xl backdrop-blur-xl scrollbar-thin"
+                className="flex w-full items-center gap-2.5 overflow-x-auto rounded-2xl border border-[#1C382E] bg-[#0D1C17]/95 p-2.5 shadow-2xl backdrop-blur-xl scrollbar-thin"
               >
                 {pendingAttachments.map((att) => (
                   <div
                     key={att.id}
-                    className="group relative flex shrink-0 items-center gap-2.5 rounded-xl border border-white/15 bg-white/5 p-1.5 pr-3 shadow transition-all hover:border-[#4ADE80]/50"
+                    className="group relative flex shrink-0 items-center gap-2.5 rounded-xl border border-[#1C382E]/80 bg-[#12271F]/60 p-1.5 pr-3 shadow transition-all hover:border-[#4ADE80]/50"
                   >
-                    {att.isImage ? (
+                    {att.type === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf') ? (
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-red-500/20 text-red-400 font-bold text-xs border border-red-500/30">
+                        PDF
+                      </div>
+                    ) : att.isImage ? (
                       <div 
                         className="relative cursor-pointer group/img"
                         onClick={() => setAnnotatingImage(att)}
@@ -1869,7 +2648,7 @@ export default function App() {
                 <label
                   htmlFor="multi-file-upload-input"
                   onClick={triggerFileUpload}
-                  className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-dashed border-white/20 bg-transparent px-3 py-3 text-xs font-medium text-gray-400 hover:border-[#4ADE80] hover:text-[#4ADE80] transition-all active:scale-95"
+                  className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-dashed border-[#1C382E] bg-transparent px-3 py-3 text-xs font-medium text-gray-400 hover:border-[#4ADE80] hover:text-[#4ADE80] transition-all active:scale-95"
                   title="Add more photos"
                 >
                   <Plus size={14} />
@@ -1879,7 +2658,7 @@ export default function App() {
             )}
 
             {/* Main Gemini-style Input Capsule */}
-            <div className="relative flex h-14 sm:h-16 w-full items-center gap-2 sm:gap-3 rounded-full border border-white/15 bg-[#1A1A1A] px-3 sm:px-4 shadow-2xl focus-within:border-white/30 transition-all">
+            <div className="relative flex h-14 sm:h-16 w-full items-center gap-2 sm:gap-3 rounded-full border border-[#1C382E] bg-[#0D1C17] px-3 sm:px-4 shadow-2xl focus-within:border-[#4ADE80]/40 transition-all">
               <div className="relative">
                 <button
                   id="attach-file-btn"
@@ -1904,7 +2683,7 @@ export default function App() {
                       className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity"
                       onClick={() => setShowAttachMenu(false)}
                     />
-                    <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#1A1A1A] rounded-t-[24px] p-4 sm:p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-full duration-300">
+                    <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0D1C17] border-t border-[#1C382E] rounded-t-[24px] p-4 sm:p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-full duration-300">
                       
                       {/* Voice-to-Voice Talk to Mentor Spotlight Button */}
                       <div className="max-w-md mx-auto mb-4">
@@ -1914,7 +2693,7 @@ export default function App() {
                             setShowAttachMenu(false);
                             setShowVoiceModal(true);
                           }}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#4ADE80]/40 bg-gradient-to-r from-[#1E293B] via-[#16161A] to-[#101B15] p-3.5 shadow-[0_0_20px_rgba(74,222,128,0.15)] hover:border-[#4ADE80] transition-all hover:scale-[1.01] active:scale-[0.99] text-left cursor-pointer group"
+                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#4ADE80]/40 bg-gradient-to-r from-[#12271F] via-[#0D1C17] to-[#0A1713] p-3.5 shadow-[0_0_20px_rgba(74,222,128,0.15)] hover:border-[#4ADE80] transition-all hover:scale-[1.01] active:scale-[0.99] text-left cursor-pointer group"
                         >
                           <div className="flex items-center gap-3.5">
                             <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#4ADE80]/20 text-[#4ADE80] border border-[#4ADE80]/40 group-hover:scale-110 transition-transform">
@@ -1954,7 +2733,7 @@ export default function App() {
                           }}
                           className="flex flex-col items-center gap-2 group"
                         >
-                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#2D2D2D] text-blue-400 group-hover:bg-[#3D3D3D] transition-colors active:scale-95">
+                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#12271F] text-blue-400 group-hover:bg-[#1C382E] transition-colors active:scale-95">
                             <ImageIcon size={26} />
                           </div>
                           <span className="text-[11px] sm:text-[12px] font-medium text-gray-300">Photos</span>
@@ -1968,7 +2747,7 @@ export default function App() {
                           }}
                           className="flex flex-col items-center gap-2 group cursor-pointer"
                         >
-                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#2D2D2D] text-white group-hover:bg-[#3D3D3D] transition-colors active:scale-95">
+                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#12271F] text-white group-hover:bg-[#1C382E] transition-colors active:scale-95">
                             <Camera size={26} />
                           </div>
                           <span className="text-[11px] sm:text-[12px] font-medium text-gray-300">Camera</span>
@@ -1984,7 +2763,7 @@ export default function App() {
                           }}
                           className="flex flex-col items-center gap-2 group"
                         >
-                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#2D2D2D] text-purple-400 group-hover:bg-[#3D3D3D] transition-colors active:scale-95">
+                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#12271F] text-purple-400 group-hover:bg-[#1C382E] transition-colors active:scale-95">
                             <Folder size={26} />
                           </div>
                           <span className="text-[11px] sm:text-[12px] font-medium text-gray-300">Files</span>
@@ -2000,7 +2779,7 @@ export default function App() {
                           }}
                           className="flex flex-col items-center gap-2 group"
                         >
-                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#2D2D2D] text-[#4ADE80] group-hover:bg-[#3D3D3D] transition-colors active:scale-95">
+                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#12271F] text-[#4ADE80] group-hover:bg-[#1C382E] transition-colors active:scale-95">
                             <HardDrive size={26} />
                           </div>
                           <span className="text-[11px] sm:text-[12px] font-medium text-gray-300">Drive</span>
@@ -2021,7 +2800,7 @@ export default function App() {
                             setTimeout(() => inputRef.current?.focus(), 50);
                           }}
                         >
-                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#2D2D2D] text-blue-400">
+                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#12271F] text-blue-400">
                             <ImageIcon size={20} className="sm:h-6 sm:w-6" />
                           </div>
                           <div className="flex flex-col">
@@ -2042,7 +2821,7 @@ export default function App() {
                             setTimeout(() => inputRef.current?.focus(), 50);
                           }}
                         >
-                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#2D2D2D] text-yellow-400">
+                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#12271F] text-yellow-400">
                             <Layout size={20} className="sm:h-6 sm:w-6" />
                           </div>
                           <div className="flex flex-col">
@@ -2063,7 +2842,7 @@ export default function App() {
                             setTimeout(() => inputRef.current?.focus(), 50);
                           }}
                         >
-                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#2D2D2D] text-purple-400">
+                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#12271F] text-purple-400">
                             <GraduationCap size={20} className="sm:h-6 sm:w-6" />
                           </div>
                           <div className="flex flex-col">
@@ -2083,7 +2862,7 @@ export default function App() {
                             handleSend("I am activating Teaching Mode as my 1-on-1 AI Tutor to reach 100% mastery. Please begin by asking for my Class, Board/Exam, and Subject/Chapter.", true);
                           }}
                         >
-                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#2D2D2D] text-[#4ADE80]">
+                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#12271F] text-[#4ADE80]">
                             <BrainCircuit size={20} className="sm:h-6 sm:w-6" />
                           </div>
                           <div className="flex flex-col">
@@ -2102,7 +2881,7 @@ export default function App() {
                             handleSend("Please explain with Visual Video & Whiteboard Explanation Mode: generate a dynamic Manim animation or SVG code, a timed [WHITEBOARD_SEQUENCE] step-by-step drawing with spoken narration, and a realistic [VIDEO_SCENE: ...] high-fidelity prompt for the visual engine.", true);
                           }}
                         >
-                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#2D2D2D] text-cyan-400">
+                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#12271F] text-cyan-400">
                             <Film size={20} className="sm:h-6 sm:w-6" />
                           </div>
                           <div className="flex flex-col">
@@ -2127,8 +2906,8 @@ export default function App() {
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder={
                   pendingAttachments.length > 0
-                    ? 'Ask Examix...'
-                    : 'Ask Examix...'
+                    ? 'Ask Examix AI about these files...'
+                    : 'Ask Examix AI anything... (Formulas, concepts, diagrams)'
                 }
                 className="min-w-0 flex-1 bg-transparent px-1 sm:px-2 text-sm sm:text-base font-medium text-white outline-none placeholder:text-gray-500"
                 onKeyDown={(e) => {
@@ -2192,7 +2971,7 @@ export default function App() {
                   id="send-message-btn"
                   className={`group flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full text-white transition-all ${
                     isSubmitting || !canSend
-                      ? 'bg-[#1E1E1E] text-gray-500 cursor-not-allowed opacity-50'
+                      ? 'bg-[#12271F] text-gray-500 cursor-not-allowed opacity-50'
                       : 'bg-[#4ADE80] hover:bg-[#34d399] active:scale-95 text-black'
                   }`}
                   onClick={() => handleSend()}
@@ -2209,13 +2988,13 @@ export default function App() {
             </div>
 
             <div className="text-center text-[11px] text-gray-500">
-              Examix can make mistakes. Verify critical facts and formulas.
+              Examix AI can make mistakes. Verify critical exam facts, formulas, and derivations.
             </div></div></footer></div>
 
       {/* Interactive Canvas Workspace Panel */}
       {isCanvasOpen && (
-        <div className="flex flex-1 flex-col h-screen border-l border-white/10 bg-[#0A0A0A] overflow-hidden transition-all duration-300 z-20 shadow-[-10px_0_30px_rgba(0,0,0,0.5)]">
-          <div className="flex items-center justify-between border-b border-white/5 bg-[#0D0D0D] px-6 h-16 shrink-0">
+        <div className="flex flex-1 flex-col h-screen border-l border-[#1C382E] bg-[#081511] overflow-hidden transition-all duration-300 z-20 shadow-[-10px_0_30px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center justify-between border-b border-[#1C382E]/50 bg-[#0A1713] px-6 h-16 shrink-0">
             <div className="flex items-center gap-3 text-white">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
                 <Layout size={16} />
@@ -2258,6 +3037,10 @@ export default function App() {
         onClose={() => setShowMasteryModal(false)} 
         memory={conceptMemory} 
         onUpdateMemory={setConceptMemory}
+        onQuizConcept={(concept) => {
+          setShowMasteryModal(false);
+          handleSend(`Pehle mujhe ${concept} ka quick 10-second Socratic memory recall check do taki mai ise master kar saku.`);
+        }}
       />
 
       {/* Voice-to-Voice Mentor Learning Modal */}
@@ -2282,9 +3065,27 @@ export default function App() {
               const existing = newMemory.find(m => m.concept.toLowerCase() === conceptName.toLowerCase());
               if (existing) {
                 existing.status = status;
+                if (status === 'Mastered') {
+                  existing.lastError = null;
+                  existing.confidenceScore = 1.0;
+                  showToast(`🎯 Concept Mastered: ${conceptName} is now 100/100!`);
+                } else {
+                  existing.lastError = u.last_error || existing.lastError || 'Needs Socratic drill';
+                  existing.confidenceScore = status === 'Critical Weakness' ? 0.3 : 0.6;
+                }
                 existing.lastUpdated = Date.now();
               } else {
-                newMemory.push({ concept: conceptName, status, lastUpdated: Date.now() });
+                newMemory.push({ 
+                  concept: conceptName, 
+                  topic: u.topic || 'General',
+                  status, 
+                  lastUpdated: Date.now(),
+                  lastError: status === 'Mastered' ? null : (u.last_error || null),
+                  confidenceScore: status === 'Mastered' ? 1.0 : (status === 'Critical Weakness' ? 0.3 : 0.6)
+                });
+                if (status === 'Mastered') {
+                  showToast(`🎯 Concept Mastered: ${conceptName} is now 100/100!`);
+                }
               }
             });
             return newMemory;
@@ -2309,13 +3110,15 @@ export default function App() {
 
           if (!targetSessionId) {
             const newId = 'chat_' + Date.now();
+            const detectedTag = detectSubjectTag(userText);
             const newSession: ChatSession = {
               id: newId,
               title: userText.length > 35 ? userText.substring(0, 35) + '...' : userText,
               createdAt: Date.now(),
               updatedAt: Date.now(),
               messages: [userMsg, aiMsg],
-              modelId: selectedModel
+              modelId: selectedModel,
+              tag: detectedTag
             };
             setSessions([newSession, ...updatedSessionList]);
             setCurrentSessionId(newId);
@@ -2368,6 +3171,52 @@ export default function App() {
           }}
         />
       )}
+
+      {/* PDF Notes & School Handwritten Notes Hub (Slide Drawer) */}
+      <PdfSlideModal
+        isOpen={showPdfSlideModal}
+        onClose={() => setShowPdfSlideModal(false)}
+        currentSession={currentSession}
+        messages={messages}
+        onImportAndSendNotes={handleImportAndSendNotes}
+        onExportPdf={handleExportChat}
+        onShareSession={handleShareSession}
+        isExporting={isExportingPDF}
+      />
+
+      {/* Settings & API Key Configuration Modal */}
+      <ApiKeySettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        initialTab={settingsInitialTab}
+        onSettingsSaved={() => showToast('Settings & API configuration saved')}
+        hotwordSettings={hotwordSettings}
+        onUpdateHotwordSettings={handleUpdateHotwordSettings}
+        onOpenHotwordControlCenter={() => setShowHotwordModal(true)}
+        onLaunchOledMode={() => setShowOledScreenOffMode(true)}
+      />
+
+      {/* Examix OS Multi-Hotword Matrix & Screen-Off Control Center */}
+      <HotwordControlCenterModal
+        isOpen={showHotwordModal}
+        onClose={() => setShowHotwordModal(false)}
+        settings={hotwordSettings}
+        onUpdateSettings={handleUpdateHotwordSettings}
+        onLaunchOledMode={() => setShowOledScreenOffMode(true)}
+      />
+
+      {/* OLED Deep-Black True Screen-Off Mode Canvas */}
+      <ScreenOffOledOverlay
+        isOpen={showOledScreenOffMode}
+        onClose={() => {
+          setShowOledScreenOffMode(false);
+          setActiveWakeHotword(null);
+        }}
+        settings={hotwordSettings}
+        onUpdateSettings={handleUpdateHotwordSettings}
+        onProcessVoiceQuery={handleProcessScreenOffVoiceQuery}
+        activeHotword={activeWakeHotword}
+      />
     </div>
   );
 }

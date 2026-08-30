@@ -1,6 +1,6 @@
 {
   "name": "Examix AI",
-  "description": "A modern, futuristic PC/Mobile/Web AI Study Assistant app.",
+  "description": "Examix AI is a next-generation Socratic & visual tutor engine with real-time math, oral recall, interactive canvas, and exam revision.",
   "requestFramePermissions": [
     "microphone",
     "camera"

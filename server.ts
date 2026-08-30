@@ -21,7 +21,41 @@ if (process.env.OPENAI_API_KEY) {
 
 const systemInstruction = `# MASTER SYSTEM INSTRUCTION: EXAMIX AI — 40-FEATURE MULTIMODAL & ZERO-BUG TUTOR ENGINE
 
-You are **Examix AI**, an elite Socratic academic tutor, multimodal visual architect, and exam-sheet engine. Your objective is to generate structured, high-yield, exam-ready revision sheets and interactive lessons. Every output must be clean, structured, and ready to be converted into a PDF study note without requiring post-cleanup.
+You are **Examix AI**, an elite Socratic academic tutor, multimodal visual architect, and exam-sheet engine. Your objective is to generate structured, high-yield, exam-ready revision sheets, conduct active oral/written memorization drills, and systematically eliminate student error traps until they achieve a 100/100 exam mastery.
+
+---
+
+### ACTIVE SOCRATIC REVISION & SPACED REPETITION (1-3-7-15 DAY MEMORY DECAY ENGINE)
+
+1. **Ebbinghaus Forgetting Curve & Retention Tracker:**
+   - The student's knowledge profile tracks memory health across spaced repetition intervals:
+     * **Day 1–3 (FRESH - 100% Green):** Peak retention, recently practiced.
+     * **Day 4–7 (WARM - Yellow):** Quizzed as a quick warm-up drill to prevent memory drop.
+     * **Day 15+ (DECAYED - Red/Orange):** Crosses the Ebbinghaus forgetting threshold; drops automatically into \`Needs Revision\` badge until tested again.
+     * **After 3 consecutive successful checks (PERMANENT_LOCK - Gold Shield 🛡️):** Consolidated into permanent long-term memory. Next review is extended to 30+ days.
+
+2. **Contextual Revision Pop-Up (Active Retrieval):**
+   - When the student starts a new chat or asks a doubt:
+     * Check if any topic in the profile has a \`DECAYED\` status (>15 days without recall) or active error log entry.
+     * Automatically ask 1 surprise recall checkpoint before answering the new prompt:
+       > 🧠 **15-Day Memory Retention Check:**
+       > *Aage badhne se pehle dekhte hain purani cheez yaad hai ya bhool gaye: [1-line conceptual question testing the decayed concept/trap].*
+
+3. **Outcome & Auto-Mastery Logic:**
+   - **If Correct:**
+     * Increment \`streak_count\` (e.g. 1 -> 2, 2 -> 3).
+     * If \`streak_count >= 3\`, award \`PERMANENT_LOCK\` (Gold Shield status) and extend the next review interval to 30 days.
+     * Mark status as \`MASTERED\`, \`confidence_score: 1.0\`, \`last_error: null\`.
+     * Emit \`system_sync\` JSON block with \`status: "MASTERED"\`, \`streak_count\`, and \`retention_level: "PERMANENT_LOCK" | "FRESH"\`.
+   - **If Incorrect / Forgotten:**
+     * Reset \`streak_count\` to 0.
+     * Move concept back to \`Error Log (Needs Revision)\` with \`retention_level: "DECAYED"\`.
+     * Deliver an immediate 20-second remediation card / intuitive micro-analogy.
+
+4. **Oral Voice Revision Sync (Voice Mode):**
+   - When in Voice/Oral Mode, orally inject the 15-day check:
+     *"Age badhne se pehle, 15-day spaced repetition check karte hain: [Quick question]. Jaldi se bolo!"*
+   - Reinforce positive oral feedback immediately upon correct response.
 
 ---
 
@@ -56,14 +90,17 @@ When generating revision sheets, study notes, or comprehensive concept lessons, 
 ---
 
 ### 4. 🧠 Quick Memory Lock & Proportionality Rules
-* Relationship 1 (e.g., If distance doubles $\rightarrow$ Force becomes $\frac{1}{4}\text{th}$).
+* Relationship 1 (e.g., If distance doubles $\\rightarrow$ Force becomes $\\frac{1}{4}\\text{th}$).
 * Quick mnemonic or intuitive rule to remember the formula under pressure.
 
 ---
 
-### 5. 📝 Active Verification & Practice Problem
-* **Question:** A high-probability numerical or concept question.
-* **Step-by-Step Solution:** Clear, numbered working with final answer highlighted.
+### 5. 📝 Active Verification & Practice Problem (Socratic Hard-Stop)
+* **Question:** A high-probability numerical or concept question directly testing the core law.
+* **CRITICAL SOCRATIC HARD-STOP MANDATE:** 
+  - Output ONLY the question and a thought-provoking challenge prompt.
+  - NEVER pre-reveal or output the step-by-step solution, mathematical working, or numerical answer in the same message!
+  - Wait for the student to attempt, calculate, or reply before validating and revealing the solution steps.
 
 ---
 
@@ -74,7 +111,7 @@ When generating revision sheets, study notes, or comprehensive concept lessons, 
    - Do NOT use raw text symbols (like \`^2\`, \`*\`) for formulas.
 2. **Never Wrap Regular Text in Code Blocks:**
    - Headings (\`###\`), explanatory text, mathematical formulas, bullet points, and next steps must NEVER be placed inside \`\`\`code \`\`\`, \`\`\`markdown \`\`\`, or \`\`\`text \`\`\` blocks.
-3. **Explicit Single-Block SVG Rule:**
+3. **Explicit Single-Block SVG Rule (Zero-Clutter Visual Card):**
    - Triple backticks are reserved ONLY for self-contained SVG blocks:
      \`\`\`xml
      <svg viewBox="0 0 500 160" width="100%" xmlns="http://www.w3.org/2000/svg">
@@ -82,17 +119,22 @@ When generating revision sheets, study notes, or comprehensive concept lessons, 
      </svg>
      \`\`\`
    - You MUST close the SVG block immediately with \`\`\` before writing subsequent text.
+   - Do NOT add redundant markdown titles above the SVG like "### Visual Diagram" or "SVG Vector" — the UI renders a clean, headerless interactive card automatically.
 4. **Absolute Ban on Stylized Unicode Fonts:**
-   - Use ONLY standard ASCII / Unicode text (A-Z, a-z, 0-9). Never use decorative, gothic, mathematical bold/fraktur, or script characters.
-5. **No Conversational Filler:**
-   - Eliminate greeting phrases ("Sure!", "Here is your note...", "Let's learn..."). Start directly with the \`# 📌 [Topic Name]\` header.
-6. **Self-Contained Content:**
+   - Use ONLY standard plain ASCII / Unicode text (A-Z, a-z, 0-9). 
+   - NEVER use gothic, fraktur (e.g. 𝕰𝖝𝖆𝖒𝖎𝖝), mathematical bold/italic, cursive, or decorative script Unicode glyphs. Always use standard clean Latin letters.
+5. **Socratic Hard-Stop (No Pre-Revealed Answers):**
+   - When presenting a "15-Day Memory Retention Check", "Spontaneous Memory Check", or "Active Verification & Practice Problem", ask the question and STOP.
+   - Do NOT reveal the solution or answer steps in advance. Await the student's reply.
+6. **No Conversational Filler:**
+   - Eliminate robotic filler phrases. Start directly with the Socratic Memory Check (if error log is active) and \`# 📌 [Topic Name]\` header.
+7. **Self-Contained Content:**
    - Output must be a consolidated one-page study cheat sheet, not an incomplete chat fragment.
 
 ---
 
 ### MODULE 2: MULTI-DIAGRAM SVG VISUAL ENGINE (ONE DIAGRAM = ONE IDEA)
-- **Modular Sequential Visuals:** Split multi-step phenomena into sequential SVGs (Setup $\rightarrow$ Forces/Vectors).
+- **Modular Sequential Visuals:** Split multi-step phenomena into sequential SVGs (Setup $\\rightarrow$ Forces/Vectors).
 - **Dark-Mode SVG Formatting:** \`viewBox="0 0 500 160"\`, \`width="100%"\`, transparent background, high-contrast labels (\`fill="#FFFFFF"\` or \`fill="#38BDF8"\`, \`font-size="15"\`, \`font-weight="bold"\`, \`text-anchor="middle"\`).
 - **Color Scheme:** Positive charges (\`#EF4444\`), Negative charges (\`#3B82F6\`), Vectors (\`#38BDF8\`).
 - **Diagram-Explanation Binding:** Every SVG must be followed by a 1–2 line "What to Notice" explanation.
@@ -127,15 +169,15 @@ When generating revision sheets, study notes, or comprehensive concept lessons, 
       "topic": "<Current Topic>",
       "concept": "<Evaluated Sub-Concept>",
       "status": "MASTERED | REVISION_NEEDED | CRITICAL_WEAKNESS",
-      "confidence_score": 0.95,
+      "confidence_score": 1.0,
       "last_error": null,
-      "exam_readiness_score": 92
+      "exam_readiness_score": 100
     },
     "heatmap_ui_trigger": {
-      "action": "UPDATE_HEATMAP_NODE",
+      "action": "RESOLVE_ERROR_ITEM",
       "concept_id": "<concept_slug>",
       "status_color": "GREEN | YELLOW | RED",
-      "alert_toast": null
+      "alert_toast": "🎯 Concept Mastered: Quantization of Charge is now 100/100!"
     }
   }
 }
@@ -157,9 +199,76 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
-  app.post('/api/chat', async (req, res) => {
+  // Settings & API Key Verification Endpoints
+  app.get('/api/settings/status', (req, res) => {
+    res.json({
+      hasServerGeminiKey: !!process.env.GEMINI_API_KEY,
+      hasServerOpenAiKey: !!process.env.OPENAI_API_KEY,
+      defaultModel: 'gemini-3.7-flash',
+    });
+  });
+
+  app.post('/api/settings/verify', async (req, res) => {
     try {
-      const { messages, model: requestedModel, mode, memory } = req.body;
+      const { provider, key } = req.body;
+      if (!key || typeof key !== 'string' || !key.trim()) {
+        return res.status(400).json({ valid: false, error: 'API key is required.' });
+      }
+
+      const trimmedKey = key.trim();
+
+      if (provider === 'gemini') {
+        const testClient = new GoogleGenAI({
+          apiKey: trimmedKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            }
+          }
+        });
+        const testResult = await testClient.models.generateContent({
+          model: 'gemini-3.7-flash',
+          contents: [{ role: 'user', parts: [{ text: 'Respond with the word OK.' }] }]
+        });
+        if (testResult.text) {
+          return res.json({ valid: true, message: 'Google Gemini API key verified successfully!' });
+        } else {
+          return res.status(400).json({ valid: false, error: 'Empty response during key verification.' });
+        }
+      } else if (provider === 'openai') {
+        const testOpenAi = new OpenAI({ apiKey: trimmedKey });
+        await testOpenAi.models.list();
+        return res.json({ valid: true, message: 'OpenAI API key verified successfully!' });
+      } else {
+        return res.status(400).json({ valid: false, error: 'Unknown provider specified.' });
+      }
+    } catch (err: any) {
+      console.warn('API key verification error:', err?.message);
+      return res.status(400).json({
+        valid: false,
+        error: err?.message || 'Verification failed. Please check key validity.'
+      });
+    }
+  });
+
+    app.post('/api/chat', async (req, res) => {
+    try {
+      const { messages, model: requestedModel, mode, memory, cognitive_graph } = req.body;
+
+      // Extract custom API keys if sent by client
+      const customGeminiKey = (req.headers['x-gemini-api-key'] as string) || req.body?.customGeminiKey;
+      const customOpenAiKey = (req.headers['x-openai-api-key'] as string) || req.body?.customOpenAiKey;
+
+      const activeGenAiClient = customGeminiKey
+        ? new GoogleGenAI({
+            apiKey: customGeminiKey.trim(),
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          })
+        : ai;
+
+      const activeOpenAiClient = customOpenAiKey
+        ? new OpenAI({ apiKey: customOpenAiKey.trim() })
+        : openai;
       
       // Handle Nano Banana 2 (gemini-3.1-flash-image) - Since Image API quota is 0 on free tier, 
       // we use Gemini 3.7 Flash's advanced reasoning to generate beautiful SVG vector diagrams instead.
@@ -182,17 +291,133 @@ async function startServer() {
       }
 
       let memoryContext = '';
-      if (memory && Array.isArray(memory) && memory.length > 0) {
-        memoryContext = '\n\n### CURRENT STUDENT KNOWLEDGE GRAPH (MEMORY):\n' + memory.map((m: any) => `- ${m.concept}: ${m.status}`).join('\n');
+      
+      // 1. Process Neuro-Sync Cognitive Graph if provided
+      if (cognitive_graph && cognitive_graph.concept_nodes && Object.keys(cognitive_graph.concept_nodes).length > 0) {
+        const now = Date.now();
+        const nodes: any[] = Object.values(cognitive_graph.concept_nodes);
+
+        const overdueOrDecayed = nodes.filter((n: any) => {
+          const isOverdue = n.decay_due_date ? new Date(n.decay_due_date).getTime() <= now : false;
+          return isOverdue || n.status === 'CRITICAL_WEAKNESS' || n.status === 'NEEDS_REVISION' || (n.retention_strength && n.retention_strength < 0.6);
+        });
+
+        const masteredLocked = nodes.filter((n: any) => n.status === 'MASTERED_LOCKED' || (n.streak_count && n.streak_count >= 3));
+        const warmNodes = nodes.filter((n: any) => !overdueOrDecayed.includes(n) && !masteredLocked.includes(n));
+
+        memoryContext = `\n\n=====================================================
+### NEURO-SYNC DUAL-BRAIN COGNITIVE GRAPH (EBBINGHAUS DECAY MATRIX)
+=====================================================
+Overall Student Readiness Score: ${cognitive_graph.overall_readiness_score || 78}%
+
+🧠 LIVE COGNITIVE GRAPH NODES:
+${overdueOrDecayed.length > 0 ? `🚨 DECAYED / OVERDUE RETRIEVAL NODES (${overdueOrDecayed.length} concepts):
+${overdueOrDecayed.map((n: any) => `- [${n.status}] "${n.name}" (ID: ${n.id}) | Retention Health: ${Math.round((n.retention_strength || 0.4) * 100)}% | Streak: ${n.streak_count || 0}${n.known_traps && n.known_traps.length > 0 ? ` | Known Traps: ${n.known_traps.join('; ')}` : ''}`).join('\n')}` : '- (All concept nodes currently fresh)'}
+
+${warmNodes.length > 0 ? `🟡 WARM ACTIVE NODES:
+${warmNodes.map((n: any) => `- [${n.status}] "${n.name}" | Health: ${Math.round((n.retention_strength || 0.7) * 100)}% | Streak: ${n.streak_count || 1}`).join('\n')}` : ''}
+
+${masteredLocked.length > 0 ? `🛡️ MASTERED & LOCKED (Permanent Long-Term Storage):
+${masteredLocked.map((n: any) => `- [MASTERED_LOCKED] "${n.name}" | Health: 100% | Streak: ${n.streak_count || 3} 🔥`).join('\n')}` : ''}
+
+🎯 DYNAMIC INTERRUPTER DIRECTIVE (SPACED SURPRISE RETRIEVAL):
+${overdueOrDecayed.length > 0 ? `A decayed/overdue concept node is due for retrieval: "${overdueOrDecayed[0].name}" (Known Trap: ${overdueOrDecayed[0].known_traps?.[0] || 'Formula application'}).
+1. At the very top of your response before answering the new doubt, inject a 10-second rapid-fire recall challenge:
+   > 🧠 **15-Day Memory Retention Check (Neuro-Sync Spaced Retrieval):**
+   > *Aage badhne se pehle dekhte hain purana concept yaad hai ya bhool gaye: [1-line targeted question testing "${overdueOrDecayed[0].name}"]*
+2. Socratic Hard-Stop: Ask the question and wait for the student's reply without pre-revealing the answer.
+3. When the student attempts or solves this, emit the \`system_sync\` block with updated status, confidence, and retention.` : 'All concept nodes are currently in a high-retention state. Proceed directly with high-yield instruction.'}
+=====================================================`;
+      } else if (memory && Array.isArray(memory) && memory.length > 0) {
+        const now = Date.now();
+        
+        // Analyze Spaced Repetition & Decay state for legacy memory format
+        const analyzed = memory.map((m: any) => {
+          const lastTested = m.last_tested_date 
+            ? new Date(m.last_tested_date).getTime() 
+            : (m.lastUpdated || now);
+          const daysElapsed = Math.max(0, Math.floor((now - lastTested) / (1000 * 60 * 60 * 24)));
+          
+          let retentionLevel = m.retention_level || 'FRESH';
+          if ((m.streak_count || 0) >= 3 || retentionLevel === 'PERMANENT_LOCK') {
+            retentionLevel = 'PERMANENT_LOCK';
+          } else if (daysElapsed > 14) {
+            retentionLevel = 'DECAYED';
+          } else if (daysElapsed > 3) {
+            retentionLevel = 'WARM';
+          } else {
+            retentionLevel = 'FRESH';
+          }
+
+          return {
+            ...m,
+            daysElapsed,
+            retentionLevel,
+            streak: m.streak_count || 0
+          };
+        });
+
+        const decayedItems = analyzed.filter((m: any) => m.retentionLevel === 'DECAYED' || m.status !== 'Mastered');
+        const warmItems = analyzed.filter((m: any) => m.retentionLevel === 'WARM');
+        const permanentItems = analyzed.filter((m: any) => m.retentionLevel === 'PERMANENT_LOCK');
+        const freshItems = analyzed.filter((m: any) => m.retentionLevel === 'FRESH' && m.status === 'Mastered');
+
+        memoryContext = `\n\n=====================================================
+### CURRENT STUDENT KNOWLEDGE GRAPH (EBBINGHAUS 1-3-7-15 DAY DECAY ENGINE)
+=====================================================
+🧠 MEMORY HEALTH & DECAY TRACKER:
+${decayedItems.length > 0 ? `🚨 DECAYED / NEEDS REVISION (${decayedItems.length} concepts >15 days without recall or with logged errors):
+${decayedItems.map((m: any) => `- [${m.retentionLevel}] "${m.concept}" (${m.topic || 'General'}) | Last tested: ${m.daysElapsed}d ago | Streak: ${m.streak}${m.lastError ? ` | Trap: ${m.lastError}` : ''}`).join('\n')}` : '- (0 decayed items)'}
+
+${warmItems.length > 0 ? `🟡 WARM-UP DUE (Days 4–7):
+${warmItems.map((m: any) => `- [WARM] "${m.concept}" | Last tested: ${m.daysElapsed}d ago | Streak: ${m.streak}`).join('\n')}` : ''}
+
+${permanentItems.length > 0 ? `🛡️ PERMANENT LOCK (Gold Shield - Consolidated into Long-term Memory):
+${permanentItems.map((m: any) => `- [PERMANENT_LOCK] "${m.concept}" | Streak: ${m.streak} 🔥 | Retained permanently`).join('\n')}` : ''}
+
+${freshItems.length > 0 ? `🟢 FRESH (Days 1–3 Peak Retention):
+${freshItems.map((m: any) => `- [FRESH] "${m.concept}" | Tested ${m.daysElapsed}d ago | Streak: ${m.streak}`).join('\n')}` : ''}
+
+🎯 ACTIVE RETRIEVAL DIRECTIVE (15-DAY RETENTION POP-UP):
+${decayedItems.length > 0 ? `The student has decayed concepts (>15 days without active recall): [${decayedItems.map((e: any) => e.concept).join(', ')}].
+1. At the very top of your response before answering the new prompt (or when starting a conversation / doubt), inject 1 surprise recall checkpoint formatted as:
+   > 🧠 **15-Day Memory Retention Check:**
+   > *Aage badhne se pehle dekhte hain purani cheez yaad hai ya bhool gaye: [1-line conceptual question testing ${decayedItems[0].concept}]*
+2. If the student answers correctly in their reply:
+   - Increment their streak count. If streak reaches 3, award PERMANENT_LOCK (Gold Shield).
+   - Emit system_sync with status "MASTERED", "retention_level": "PERMANENT_LOCK" or "FRESH", "streak_count": ${(decayedItems[0].streak || 0) + 1}.
+3. If they answer incorrectly:
+   - Reset streak to 0, mark "DECAYED", and deliver an immediate 20-second remediation card.` : 'Spaced repetition schedule is on track. Test prerequisite concepts with quick warm-up checks.'}
+=====================================================`;
       }
 
-      // Check if Voice, Teaching Mode, or Live Vision is active
-      const isVoiceVision = mode === 'voice' || mode === 'live_voice_vision';
+      // Check if Voice, Teaching Mode, Screen-Off Voice, or Live Vision is active
+      const isVoiceVision = mode === 'voice' || mode === 'live_voice_vision' || mode === 'screen_off_voice';
+      const isScreenOffVoice = mode === 'screen_off_voice';
       const isTeachingMode = mode === 'Teaching Mode' || mode === 'Guided Learning';
 
       let activeSystemInstruction = `${systemInstruction}${memoryContext}`;
 
-      if (isTeachingMode || isVoiceVision) {
+      if (isScreenOffVoice) {
+        activeSystemInstruction += `
+
+=====================================================
+  EXAMIX AI - SCREEN-OFF ORAL TUTORING & AUDITORY MASTERY DIRECTIVE
+=====================================================
+The student is currently listening with their **SCREEN OFF / DISPLAY ASLEEP** (hands-free via earphones or speaker).
+Because the student cannot see any visual diagram or display:
+1. **Auditory Cadence Constraint:**
+   - Keep your entire spoken response strictly between **25 to 45 words (15 to 30 seconds max)**.
+   - Deliver clear, direct, and conversational explanations without preamble or pleasantries.
+2. **Conversational Spoken Phonetics for Equations:**
+   - Never output raw unpronounceable LaTeX syntax in spoken prose. Convert all math to vivid conversational audio:
+     * e.g., Speak "$F = \\frac{1}{4\\pi\\varepsilon_0}\\frac{q_1 q_2}{r^2}$" as: "Coulomb force is equal to 9 into 10 to the power 9, multiplied by q1 into q2, divided by r-square."
+     * e.g., Speak "$q = ne$" as: "Total charge q equals n multiplied by elementary charge e."
+3. **Hands-Free Socratic Checkpoint:**
+   - End with a quick 1-sentence verbal checkpoint or prompt for the student to speak aloud.
+4. **Instant Remediation:**
+   - If the student answers incorrectly, give a 15-second oral hint and ask them to state the missing variable.`;
+      } else if (isTeachingMode || isVoiceVision) {
         activeSystemInstruction += `
 
 =====================================================
@@ -264,8 +489,8 @@ When speaking out loud, convert complex formulas into clear conversational langu
       let usedModel: string = requestedModel || 'auto';
 
       if (requestedModel && requestedModel.startsWith('gpt-')) {
-        if (!openai) {
-          throw new Error('OPENAI_API_KEY is not configured on the server.');
+        if (!activeOpenAiClient) {
+          throw new Error('OPENAI_API_KEY is not configured on the server or provided in settings.');
         }
 
         const openAiMessages: any[] = [
@@ -291,7 +516,7 @@ When speaking out loud, convert complex formulas into clear conversational langu
         }
 
         try {
-          const response = await openai.chat.completions.create({
+          const response = await activeOpenAiClient.chat.completions.create({
             model: requestedModel,
             messages: openAiMessages
           });
@@ -325,7 +550,7 @@ When speaking out loud, convert complex formulas into clear conversational langu
           while (attempts < maxAttemptsForModel) {
             attempts++;
             try {
-              const response = await ai.models.generateContent({
+              const response = await activeGenAiClient.models.generateContent({
                 model,
                 contents: formattedMessages,
                 config: {
@@ -537,6 +762,113 @@ Return ONLY a valid JSON object matching this schema:
       console.error('Error in /api/import-chat:', error);
       res.setHeader('Content-Type', 'application/json');
       res.status(500).json({ error: error.message || 'Failed to import and parse shared chat' });
+    }
+  });
+
+  // Dedicated Silent Turn-by-Turn Diagnostic Parser (Gemini Flash)
+  app.post('/api/neuro-sync/diagnose', async (req, res) => {
+    try {
+      const { student_turn, previous_context, concept_hint, cognitive_graph } = req.body;
+
+      if (!student_turn || typeof student_turn !== 'string' || !student_turn.trim()) {
+        return res.status(400).json({ error: 'student_turn text or transcript is required.' });
+      }
+
+      // Extract custom API key if sent by client
+      const customGeminiKey = (req.headers['x-gemini-api-key'] as string) || req.body?.customGeminiKey;
+      const activeGenAi = customGeminiKey
+        ? new GoogleGenAI({
+            apiKey: customGeminiKey.trim(),
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          })
+        : ai;
+
+      const knownConceptsList = cognitive_graph?.concept_nodes
+        ? Object.values(cognitive_graph.concept_nodes).map((n: any) => `- ID: ${n.id} | Name: ${n.name} | Traps: ${n.known_traps?.join(', ')}`).join('\n')
+        : '- physics_coulombs_law_vector: Coulomb Vector Form (Trap: unit vector r_hat direction)\n- physics_electric_dipole_2l: Electric Dipole 2l (Trap: dividing 2l by 2)\n- physics_quantization_charge: Quantization of charge q=ne (Trap: non-integer n)';
+
+      const diagnosticPrompt = `You are Examix AI's Silent Turn-by-Turn Cognitive Diagnostic Parser powered by Gemini Flash.
+Your task is to analyze the student's latest turn (text answer or spoken transcript) against the preceding tutor question/context.
+
+CONTEXT:
+=============================
+Tutor Preceding Context / Question:
+${previous_context || 'General Socratic academic practice'}
+
+Student's Latest Turn (Answer / Doubt / Voice Transcript):
+"${student_turn}"
+
+Optional Concept Hint:
+${concept_hint || 'Detect from conversation'}
+
+Known Concept Nodes in Student Graph:
+${knownConceptsList}
+=============================
+
+DIAGNOSTIC CRITERIA:
+1. Identify the exact Concept ID and Concept Name being tested.
+2. Determine if the student's answer or working is correct (\`is_correct\`: true/false).
+3. Detect if the student fell into any known trap (e.g., negative sign, unit vector orientation, dividing 2l dipole separation by 2, unit conversions, missing constants).
+4. Verify if mathematical steps and logic are sound (\`calculation_sound\`: true/false).
+5. Provide a confidence score (0.0 to 1.0) and a concise 1-sentence remediation hint if incorrect.
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "concept_id": "physics_coulombs_law_vector",
+  "concept_name": "Coulomb's Law in Vector Form",
+  "topic": "Physics - Electrostatics",
+  "is_correct": true,
+  "traps_triggered": ["Reversing unit vector direction"],
+  "calculation_sound": true,
+  "confidence": 0.95,
+  "remediation_hint": "Remember that force on q1 due to q2 acts along r21."
+}`;
+
+      const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      let diagnosticResult: any = null;
+
+      for (const model of candidateModels) {
+        try {
+          const response = await activeGenAi.models.generateContent({
+            model,
+            contents: [{ role: 'user', parts: [{ text: diagnosticPrompt }] }],
+            config: {
+              responseMimeType: 'application/json'
+            }
+          });
+          const text = response.text || '';
+          diagnosticResult = JSON.parse(text);
+          break;
+        } catch (err: any) {
+          console.warn(`Diagnostic parse failed on model ${model}:`, err?.message);
+        }
+      }
+
+      if (!diagnosticResult) {
+        // Fallback heuristic evaluation
+        const lower = student_turn.toLowerCase();
+        const isGeneralAffirmative = lower.includes('yes') || lower.includes('correct') || lower.includes('samajh gaya');
+        diagnosticResult = {
+          concept_id: concept_hint || 'physics_electrostatics_general',
+          concept_name: concept_hint || 'Electrostatics & Formula Application',
+          topic: 'Physics',
+          is_correct: isGeneralAffirmative,
+          traps_triggered: [],
+          calculation_sound: true,
+          confidence: 0.8,
+          remediation_hint: null
+        };
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.json({
+        success: true,
+        diagnostic: diagnosticResult
+      });
+    } catch (error: any) {
+      console.error('Error in /api/neuro-sync/diagnose:', error);
+      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({ error: error.message || 'Diagnostic evaluation failed' });
     }
   });
 
