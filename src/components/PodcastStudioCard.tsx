@@ -221,10 +221,22 @@ export function PodcastStudioCard({ rawContent }: PodcastStudioCardProps) {
   const isPlayingRef = useRef<boolean>(false);
   const currentIndexRef = useRef<number>(0);
   const speedRef = useRef<number>(1);
+  const activeSentenceRef = useRef<HTMLSpanElement | null>(null);
 
   // Sync refs with state
   isPlayingRef.current = isPlaying;
   speedRef.current = playbackSpeed;
+
+  // Auto-scroll the currently narrated sentence into view (karaoke effect)
+  useEffect(() => {
+    if (activeSentenceIndex >= 0 && activeSentenceRef.current) {
+      activeSentenceRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }
+  }, [activeSentenceIndex]);
 
   // Split text into clean sentences for audio playback & highlighting
   const targetScriptText = useMemo(() => {
@@ -237,17 +249,26 @@ export function PodcastStudioCard({ rawContent }: PodcastStudioCardProps) {
   const cleanSpeechSentence = (sent: string) => {
     return sent
       .replace(/[*_~`#>]/g, '')
-      .replace(/\[\/?(?:EPISODE_META|AUDIO_SCRIPT_HINDI|AUDIO_SCRIPT|MEMORY_ANCHOR_NOTES|NEXT_STEPS)\]/gi, '')
-      .replace(/^[-•]\s*(?:Hook|The Journey|Story|Climax|Insight)\s*:/gi, '')
+      .replace(/\[\/?(?:EPISODE_META|AUDIO_SCRIPT_HINDI|AUDIO_SCRIPT|MEMORY_ANCHOR_NOTES|NEXT_STEPS|PODCAST_STUDIO)\]/gi, '')
+      .replace(/^[-•]\s*(?:Hook|The Journey|Story|Climax|Insight|भूमिका|कथा|निष्कर्ष)\s*:/gi, '')
       .trim();
   };
 
   const sentences = useMemo(() => {
     if (!targetScriptText) return [];
-    return targetScriptText
-      .split(/(?<=[.?!।\n])\s+/)
+    // Strip markdown tags and headers
+    const cleaned = targetScriptText
+      .replace(/\[\/?(?:EPISODE_META|AUDIO_SCRIPT_HINDI|AUDIO_SCRIPT|MEMORY_ANCHOR_NOTES|NEXT_STEPS|PODCAST_STUDIO)\]/gi, '')
+      .replace(/^#+\s+[^\n]+/gm, '')
+      .trim();
+
+    // Split on Hindi purna viram (। / ॥), question mark (?), exclamation (!), period (.), or paragraph breaks
+    const rawList = cleaned
+      .split(/(?<=[.?!।॥\n])\s+/)
       .map(s => s.trim())
-      .filter(s => s.length > 0);
+      .filter(s => s.length > 0 && !/^[-•*#]+\s*$/.test(s));
+
+    return rawList;
   }, [targetScriptText]);
 
   // Compute approximate duration in seconds based on word count (140 words per min)
@@ -1013,14 +1034,15 @@ ${episode.takeaways.map((t, idx) => `${idx + 1}. ${t}`).join('\n')}
 
                 <div className="space-y-2 text-sm sm:text-base leading-relaxed text-gray-200">
                   {sentences.map((sent, idx) => {
-                    const isActive = isPlaying && activeSentenceIndex === idx;
+                    const isActive = (isPlaying || isPaused) && activeSentenceIndex === idx;
                     return (
                       <span
                         key={idx}
+                        ref={isActive ? (el) => { activeSentenceRef.current = el; } : undefined}
                         onClick={() => jumpToSentence(idx)}
                         className={`inline cursor-pointer transition-all duration-200 rounded px-1.5 py-0.5 hover:bg-emerald-500/15 ${
                           isActive 
-                            ? 'bg-emerald-500/25 text-emerald-200 font-medium shadow-[0_0_12px_rgba(74,222,128,0.3)] ring-1 ring-emerald-500/50' 
+                            ? 'bg-emerald-500/30 text-emerald-200 font-semibold shadow-[0_0_15px_rgba(74,222,128,0.4)] ring-1 ring-emerald-400/60' 
                             : ''
                         }`}
                         title="Click to play from here"
