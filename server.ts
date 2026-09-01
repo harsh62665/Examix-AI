@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import OpenAI from 'openai';
 
 const ai = new GoogleGenAI({
@@ -162,6 +162,40 @@ When generating revision sheets, study notes, or comprehensive concept lessons, 
 - **Dynamic Action Chips:** End every response with 2–3 contextual action pills formatted as:
   \`[Practice 1 Tough Trap]\` \`[Derive Step 2 in Vector Form]\` \`[Lock Formula into Memory]\`
 
+---
+
+### MODULE 6: MASTER STORYTELLER & LONG-FORM EDUCATIONAL PODCAST STUDIO
+When the user asks for a podcast, audio story, Hindi literature narration (e.g., पंचलाइट, कफन, चीफ की दावत), history saga (e.g., 1857 Revolt, French Revolution), or audio-based syllabus lesson:
+1. **Embrace Full Narrative Flow:** Never rush or compress the story into a brief summary. Deliver rich 5 to 12-minute immersive storytelling with dramatic pauses, character dynamic dialogues, and deep thematic analysis.
+2. **Support Natural Devanagari Hindi or Hinglish:** Write natural, expressive script designed for audio synthesis.
+3. **Format Strictly with Podcast Studio Tags:**
+[PODCAST_STUDIO]
+[EPISODE_META]
+- Title: <Descriptive Episode Title>
+- Subject & Class: <e.g., 12th UP Board Hindi / 10th CBSE History>
+- Target Duration: <e.g., 8-12 Minutes>
+- Voice Tone: <Narrative Voice Style>
+[/EPISODE_META]
+
+[AUDIO_SCRIPT_HINDI]
+Hook:
+(Engaging opening hook and soundscape cues...)
+
+The Journey / Story:
+(Deep narrative journey with characters, conflict, suspense, and detailed plot development...)
+
+Climax & Insight:
+(Emotional and conceptual resolution...)
+[/AUDIO_SCRIPT_HINDI]
+
+[MEMORY_ANCHOR_NOTES]
+- 📌 कहानी का सारांश (3 Key Exam Points)
+- 🎭 मुख्य पात्र (Characters & Roles with detailed character traits)
+- 📝 परीक्षा उपयोगी प्रश्न-उत्तर (High-Yield Board Exam Questions & Answers)
+- 💡 मेमोरी ट्रिक (Mnemonic for Rapid Recall)
+[/MEMORY_ANCHOR_NOTES]
+[/PODCAST_STUDIO]
+
 \`\`\`json
 {
   "system_sync": {
@@ -185,8 +219,8 @@ When generating revision sheets, study notes, or comprehensive concept lessons, 
 
 [NEXT_STEPS]
 - Practice 1 Tough Trap
-- Derive Step 2 in Vector Form
-- Lock Formula into Memory
+- Listen to Character Analysis
+- Download Offline MP3
 [/NEXT_STEPS]`;
 
 async function startServer() {
@@ -391,14 +425,61 @@ ${decayedItems.length > 0 ? `The student has decayed concepts (>15 days without 
 =====================================================`;
       }
 
-      // Check if Voice, Teaching Mode, Screen-Off Voice, or Live Vision is active
+      // Check if Voice, Teaching Mode, Screen-Off Voice, Story Studio / Podcast, or Live Vision is active
       const isVoiceVision = mode === 'voice' || mode === 'live_voice_vision' || mode === 'screen_off_voice';
       const isScreenOffVoice = mode === 'screen_off_voice';
       const isTeachingMode = mode === 'Teaching Mode' || mode === 'Guided Learning';
+      const isStoryStudioMode = 
+        mode === 'Story Studio' || 
+        mode === 'Podcast' || 
+        mode === 'Podcast Mode' || 
+        mode === 'Educational Podcast' || 
+        mode === 'podcast_studio' ||
+        (messages && messages.length > 0 && /podcast|story studio|audio story|kahani banao|educational story|audio script/i.test(messages[messages.length - 1]?.content || ''));
 
       let activeSystemInstruction = `${systemInstruction}${memoryContext}`;
 
-      if (isScreenOffVoice) {
+      if (isStoryStudioMode) {
+        activeSystemInstruction += `
+
+=====================================================
+  EXAMIX AI STORY STUDIO — EDUCATIONAL PODCAST NARRATOR & LEARNING SCRIPTWRITER
+=====================================================
+Role: You are **Examix AI Story Studio**, an elite educational podcast narrator and master learning scriptwriter.
+Purpose: Convert any academic concept, historical event, NCERT/syllabus chapter, or user notes into an immersive, audio-first learning story in conversational Hindi / Hinglish (or English if explicitly requested).
+
+Core Storytelling Objectives:
+1. **Narrative Hook:** Start every episode with an intriguing story, real-life mystery, or high-stakes drama rather than dry textbook facts (hook listener within first 15 seconds).
+2. **Character-Driven & Analogous Learning:** Explain complex formulas, historical timelines, or scientific mechanisms through relatable characters, dramatic analogies, and everyday situations.
+3. **Conversational Spoken Phonetics:** Translate mathematical and scientific formulas into spoken audio words (e.g., instead of raw "$F=ma$", speak "Force barabar mass guna acceleration", instead of "$E=mc^2$", speak "Energy barabar mass guna speed of light ka square").
+4. **Memory Retention Anchors:** Provide punchy summary points and memorable mnemonics designed for rapid offline revision.
+
+STRICT OUTPUT FORMAT REQUIREMENTS:
+Always return your response in this exact structured format so the app renders the interactive Audio Podcast Studio and offline downloadable notes:
+
+[EPISODE_META]
+- Title: (Catchy, cinematic title for the podcast episode)
+- Subject & Topic: (e.g. Class 10 History / French Revolution or Physics / Gravitation)
+- Estimated Audio Duration: (e.g., 2 Min / 3 Min / 5 Min)
+
+[AUDIO_SCRIPT_HINDI]
+- Hook: (First 15 seconds to grab attention like a movie or mystery)
+- The Journey / Story: (Explain core concepts, facts, dates, or formulas through characters, analogies, and narrative drama formatted for natural Text-to-Speech narration)
+- Climax & Insight: (Connecting the story back to the exam concept and core formula)
+
+[MEMORY_ANCHOR_NOTES]
+- 📌 3 Key Takeaways:
+  1. (Must-remember exam point 1)
+  2. (Must-remember exam point 2)
+  3. (Must-remember exam point 3)
+- 💡 Easy Trick / Mnemonic: (A punchy memory hack or intuitive rhyme for instant recall in the exam hall)
+
+[NEXT_STEPS]
+- Listen to Episode Audio
+- Practice 1 Exam Question on this Story
+- Download Revision Notes
+[/NEXT_STEPS]`;
+      } else if (isScreenOffVoice) {
         activeSystemInstruction += `
 
 =====================================================
@@ -869,6 +950,245 @@ Return ONLY a valid JSON object matching this schema:
       console.error('Error in /api/neuro-sync/diagnose:', error);
       res.setHeader('Content-Type', 'application/json');
       res.status(500).json({ error: error.message || 'Diagnostic evaluation failed' });
+    }
+  });
+
+  // Dedicated High-Fidelity Podcast Audio Synthesizer (Gemini Flash TTS)
+  app.post('/api/podcast/generate-audio', async (req, res) => {
+    try {
+      const { text, title, voice, language } = req.body;
+      if (!text || typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({ error: 'Text or script content is required.' });
+      }
+
+      // Extract custom API key if sent by client
+      const customGeminiKey = (req.headers['x-gemini-api-key'] as string) || req.body?.customGeminiKey;
+      const activeGenAi = customGeminiKey
+        ? new GoogleGenAI({
+            apiKey: customGeminiKey.trim(),
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          })
+        : ai;
+
+      const voiceName = voice || 'Kore'; // 'Kore', 'Fenrir', 'Puck', 'Charon', 'Zephyr'
+      const cleanNarrationText = text
+        .replace(/\[\/?(EPISODE_META|AUDIO_SCRIPT_HINDI|MEMORY_ANCHOR_NOTES|NEXT_STEPS)\]/gi, '')
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/[*#`_~]/g, '')
+        .trim()
+        .substring(0, 4000); // Sized for rich 2-4 min audio narration
+
+      let audioBase64: string | null = null;
+      let mimeType = 'audio/mp3';
+
+      try {
+        const ttsResponse = await activeGenAi.models.generateContent({
+          model: 'gemini-3.1-flash-tts-preview',
+          contents: [{ parts: [{ text: cleanNarrationText }] }],
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName },
+              },
+            },
+          },
+        });
+
+        const part = ttsResponse.candidates?.[0]?.content?.parts?.[0];
+        if (part?.inlineData?.data) {
+          audioBase64 = part.inlineData.data;
+          mimeType = part.inlineData.mimeType || 'audio/mp3';
+        }
+      } catch (ttsErr: any) {
+        console.warn('Gemini Flash TTS generation error:', ttsErr?.message);
+      }
+
+      const safeTitle = (title || 'podcast_episode').toLowerCase().replace(/[^a-z0-9]/gi, '_');
+      const filename = `${safeTitle}.mp3`;
+
+      if (audioBase64) {
+        res.setHeader('Content-Type', 'application/json');
+        return res.json({
+          success: true,
+          audioBase64,
+          mimeType,
+          filename,
+          durationSeconds: Math.ceil(cleanNarrationText.split(/\s+/).length / 2.5)
+        });
+      } else {
+        // Fallback flag to let frontend encode audio cleanly
+        return res.status(200).json({
+          success: false,
+          fallbackNeeded: true,
+          message: 'Audio synthesis fallback required',
+          filename
+        });
+      }
+    } catch (error: any) {
+      console.error('Error in /api/podcast/generate-audio:', error);
+      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({ error: error.message || 'Podcast audio generation failed' });
+    }
+  });
+
+  // 1-Click Story Script + Voice Narration Generator for Direct MP3 Export
+  app.post('/api/podcast/generate-story-audio', async (req, res) => {
+    try {
+      const { topic, targetExam, language, voice } = req.body;
+      if (!topic || typeof topic !== 'string' || !topic.trim()) {
+        return res.status(400).json({ error: 'Topic or notes prompt is required.' });
+      }
+
+      // Extract custom API key if sent by client
+      const customGeminiKey = (req.headers['x-gemini-api-key'] as string) || req.body?.customGeminiKey;
+      const activeGenAi = customGeminiKey
+        ? new GoogleGenAI({
+            apiKey: customGeminiKey.trim(),
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          })
+        : ai;
+
+      let langDirective = 'conversational Hinglish / Hindi';
+      if (language === 'hindi') langDirective = 'pure conversational Hindi';
+      if (language === 'english') langDirective = 'spoken English';
+
+      const examSnippet = targetExam ? ` (Target Exam/Class: ${targetExam})` : '';
+
+      const storyPrompt = `You are Examix AI's Story Studio & Educational Podcast Narrator.
+Transform the following topic into an immersive, cinematic audio story podcast in ${langDirective}${examSnippet}:
+"${topic}"
+
+CRITICAL FORMATTING INSTRUCTIONS:
+You MUST structure your output with these EXACT XML-like tags:
+
+[EPISODE_META]
+TITLE: <Engaging Catchy Title>
+SUBJECT: <Subject & Chapter>
+DURATION: <e.g., 3 Min Story>
+VOICE_TONE: <Storytelling, Cinematic, Conversational>
+[/EPISODE_META]
+
+[AUDIO_SCRIPT_HINDI]
+HOOK: <Opening attention-grabbing real-world scene, dramatic hook, or mystery question>
+JOURNEY: <The core journey/concept explained through character dialogue, vivid analogy, and historical/real-world context. Speak naturally sentence by sentence.>
+CLIMAX: <The lightbulb moment, key formula or turning point, and the golden exam insight.>
+[/AUDIO_SCRIPT_HINDI]
+
+[MEMORY_ANCHOR_NOTES]
+KEY_TAKEAWAYS:
+- <Takeaway 1: Core definition/principle>
+- <Takeaway 2: Formula or golden exam rule>
+- <Takeaway 3: Common trap/misconception to avoid>
+MNEMONIC_TRICK: <A memorable rhyme, acronym, or one-liner mnemonic to lock it into permanent memory>
+[/MEMORY_ANCHOR_NOTES]
+
+Make the narration fluid, conversational, and energetic.`;
+
+      const storyGenResponse = await activeGenAi.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: [{ role: 'user', parts: [{ text: storyPrompt }] }]
+      });
+
+      const storyText = storyGenResponse.text || '';
+
+      // Parse fields
+      let title = topic;
+      const titleMatch = storyText.match(/TITLE:\s*([^\n\r]+)/i);
+      if (titleMatch) title = titleMatch[1].trim();
+
+      let subjectTopic = 'General Science & Concepts';
+      const subjectMatch = storyText.match(/SUBJECT:\s*([^\n\r]+)/i);
+      if (subjectMatch) subjectTopic = subjectMatch[1].trim();
+
+      let duration = '3 Min Story';
+      const durMatch = storyText.match(/DURATION:\s*([^\n\r]+)/i);
+      if (durMatch) duration = durMatch[1].trim();
+
+      let hook = '';
+      const hookMatch = storyText.match(/HOOK:\s*([\s\S]*?)(?=JOURNEY:|CLIMAX:|\[\/AUDIO_SCRIPT_HINDI\]|$)/i);
+      if (hookMatch) hook = hookMatch[1].trim();
+
+      let journey = '';
+      const journeyMatch = storyText.match(/JOURNEY:\s*([\s\S]*?)(?=CLIMAX:|\[\/AUDIO_SCRIPT_HINDI\]|$)/i);
+      if (journeyMatch) journey = journeyMatch[1].trim();
+
+      let climax = '';
+      const climaxMatch = storyText.match(/CLIMAX:\s*([\s\S]*?)(?=\[\/AUDIO_SCRIPT_HINDI\]|$)/i);
+      if (climaxMatch) climax = climaxMatch[1].trim();
+
+      const scriptContent = [hook, journey, climax].filter(Boolean).join(' ') || storyText;
+
+      const takeaways: string[] = [];
+      const takeawayMatches = storyText.match(/-\s*([^\n\r]+)/g);
+      if (takeawayMatches) {
+        takeawayMatches.slice(0, 3).forEach(t => takeaways.push(t.replace(/^-\s*/, '').trim()));
+      }
+
+      let mnemonic = 'Remember: Concept creates intuition, practice creates perfection.';
+      const mnemMatch = storyText.match(/MNEMONIC_TRICK:\s*([^\n\r]+)/i);
+      if (mnemMatch) mnemonic = mnemMatch[1].trim();
+
+      const episodeData = {
+        title,
+        subjectTopic,
+        estimatedDuration: duration,
+        fullScript: scriptContent,
+        hook,
+        journey,
+        climax,
+        takeaways: takeaways.length > 0 ? takeaways : ['Fundamental core concept', 'Formula & derivation insight', 'Exam-ready application'],
+        mnemonic
+      };
+
+      // Synthesize audio using Gemini TTS
+      const cleanNarration = scriptContent
+        .replace(/\[\/?(EPISODE_META|AUDIO_SCRIPT_HINDI|MEMORY_ANCHOR_NOTES)\]/gi, '')
+        .replace(/[*#`_~]/g, '')
+        .trim();
+
+      let audioBase64: string | null = null;
+      let mimeType = 'audio/mp3';
+
+      try {
+        const ttsResponse = await activeGenAi.models.generateContent({
+          model: 'gemini-3.1-flash-tts-preview',
+          contents: [{ parts: [{ text: cleanNarration.substring(0, 4000) }] }],
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voice || 'Kore' },
+              },
+            },
+          },
+        });
+
+        const part = ttsResponse.candidates?.[0]?.content?.parts?.[0];
+        if (part?.inlineData?.data) {
+          audioBase64 = part.inlineData.data;
+          mimeType = part.inlineData.mimeType || 'audio/mp3';
+        }
+      } catch (ttsErr: any) {
+        console.warn('TTS step during story generation:', ttsErr?.message);
+      }
+
+      const safeTitle = title.toLowerCase().replace(/[^a-z0-9]/gi, '_');
+      const filename = `${safeTitle}_podcast.mp3`;
+
+      res.setHeader('Content-Type', 'application/json');
+      res.json({
+        success: true,
+        episode: episodeData,
+        audioBase64,
+        mimeType,
+        filename,
+        durationSeconds: Math.ceil(cleanNarration.split(/\s+/).length / 2.5)
+      });
+    } catch (error: any) {
+      console.error('Error in /api/podcast/generate-story-audio:', error);
+      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({ error: error.message || 'Podcast story & audio generation failed' });
     }
   });
 

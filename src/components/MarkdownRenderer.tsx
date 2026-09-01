@@ -7,6 +7,7 @@ import { VideoSceneCard } from './VideoSceneCard';
 import { WhiteboardPlayer } from './WhiteboardPlayer';
 import { ManimAnimationCard } from './ManimAnimationCard';
 import { SvgDiagramCard, sanitizeSvg, ImageLightboxModal } from './SvgDiagramCard';
+import { PodcastStudioCard } from './PodcastStudioCard';
 import { getSpeechHighlightInfo, isBlockActiveForSpeech } from '../utils/speechConverter';
 
 export interface MarkdownRendererProps {
@@ -163,7 +164,7 @@ export function sanitizeMarkdownTrapping(raw: string): string {
 }
 
 interface ContentBlock {
-  type: 'markdown' | 'svg' | 'video_scene' | 'whiteboard' | 'next_steps';
+  type: 'markdown' | 'svg' | 'video_scene' | 'whiteboard' | 'podcast_studio' | 'next_steps';
   content: string;
 }
 
@@ -172,12 +173,36 @@ function parseBlocks(rawText: string): ContentBlock[] {
 
   const sanitized = sanitizeMarkdownTrapping(rawText);
 
+  // If the entire text or a prominent section is formatted as a Podcast / Story Studio episode:
+  // e.g. contains [EPISODE_META] and ([AUDIO_SCRIPT_HINDI] or [AUDIO_SCRIPT] or [MEMORY_ANCHOR_NOTES])
+  if (
+    /\[EPISODE_META\]/i.test(sanitized) &&
+    (/\[AUDIO_SCRIPT(?:_HINDI)?\]/i.test(sanitized) || /\[MEMORY_ANCHOR_NOTES\]/i.test(sanitized) || /Estimated Audio Duration/i.test(sanitized))
+  ) {
+    // Check if there are other trailing blocks like [NEXT_STEPS]
+    const nextStepsMatch = sanitized.match(/\[NEXT_STEPS\][\s\S]*?\[\/NEXT_STEPS\]/i);
+    const podcastContent = nextStepsMatch 
+      ? sanitized.replace(/\[NEXT_STEPS\][\s\S]*?\[\/NEXT_STEPS\]/i, '').trim()
+      : sanitized.trim();
+
+    const blocks: ContentBlock[] = [
+      { type: 'podcast_studio', content: podcastContent }
+    ];
+
+    if (nextStepsMatch) {
+      blocks.push({ type: 'next_steps', content: nextStepsMatch[0].trim() });
+    }
+
+    return blocks;
+  }
+
   // Match:
   // 1. Complete <svg ... </svg>
   // 2. [VIDEO_SCENE: ...] or [VIDEO_SCENE]...[/VIDEO_SCENE]
   // 3. [WHITEBOARD_SEQUENCE]...[/WHITEBOARD_SEQUENCE]
-  // 4. [NEXT_STEPS]...[/NEXT_STEPS]
-  const pattern = /(<svg[\s\S]*?<\/svg>|\[VIDEO_SCENE:[\s\S]*?\]|\[VIDEO_SCENE\][\s\S]*?\[\/VIDEO_SCENE\]|\[WHITEBOARD_SEQUENCE\][\s\S]*?\[\/WHITEBOARD_SEQUENCE\]|\[NEXT_STEPS\][\s\S]*?\[\/NEXT_STEPS\])/gi;
+  // 4. [PODCAST_STUDIO]...[/PODCAST_STUDIO]
+  // 5. [NEXT_STEPS]...[/NEXT_STEPS]
+  const pattern = /(<svg[\s\S]*?<\/svg>|\[VIDEO_SCENE:[\s\S]*?\]|\[VIDEO_SCENE\][\s\S]*?\[\/VIDEO_SCENE\]|\[WHITEBOARD_SEQUENCE\][\s\S]*?\[\/WHITEBOARD_SEQUENCE\]|\[PODCAST_STUDIO\][\s\S]*?\[\/PODCAST_STUDIO\]|\[NEXT_STEPS\][\s\S]*?\[\/NEXT_STEPS\])/gi;
   const parts = sanitized.split(pattern);
   const blocks: ContentBlock[] = [];
 
@@ -196,6 +221,13 @@ function parseBlocks(rawText: string): ContentBlock[] {
       trimmed.toUpperCase().endsWith('[/WHITEBOARD_SEQUENCE]')
     ) {
       blocks.push({ type: 'whiteboard', content: trimmed });
+    } else if (
+      trimmed.toUpperCase().startsWith('[PODCAST_STUDIO]')
+    ) {
+      blocks.push({ 
+        type: 'podcast_studio', 
+        content: trimmed.replace(/^\[PODCAST_STUDIO\]/i, '').replace(/\[\/PODCAST_STUDIO\]$/i, '').trim() 
+      });
     } else if (
       trimmed.toUpperCase().startsWith('[NEXT_STEPS]') &&
       trimmed.toUpperCase().endsWith('[/NEXT_STEPS]')
@@ -575,6 +607,10 @@ export default function MarkdownRenderer({
 
         if (block.type === 'whiteboard') {
           return <WhiteboardPlayer key={`whiteboard-${index}`} rawSequenceText={block.content} />;
+        }
+
+        if (block.type === 'podcast_studio') {
+          return <PodcastStudioCard key={`podcast-studio-${index}`} rawContent={block.content} />;
         }
 
         if (block.type === 'next_steps') {

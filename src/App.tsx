@@ -61,6 +61,7 @@ import VoiceMentorModal from './components/VoiceMentorModal';
 import MasteryDashboard, { ConceptMastery } from './components/MasteryDashboard';
 import PdfSlideModal, { UploadedNoteFile } from './components/PdfSlideModal';
 import { ApiKeySettingsModal } from './components/ApiKeySettingsModal';
+import PodcastStudioModal from './components/PodcastStudioModal';
 import HotwordControlCenterModal from './components/HotwordControlCenterModal';
 import ScreenOffOledOverlay from './components/ScreenOffOledOverlay';
 import {
@@ -248,6 +249,10 @@ function extractNextSteps(content: string): string[] {
       p =>
         !p.toUpperCase().startsWith('VIDEO_SCENE') &&
         !p.toUpperCase().startsWith('WHITEBOARD') &&
+        !p.toUpperCase().startsWith('EPISODE_META') &&
+        !p.toUpperCase().startsWith('AUDIO_SCRIPT') &&
+        !p.toUpperCase().startsWith('MEMORY_ANCHOR') &&
+        !p.toUpperCase().startsWith('PODCAST_') &&
         !p.toUpperCase().startsWith('NEXT_STEPS') &&
         !p.toUpperCase().startsWith('/NEXT_STEPS') &&
         !p.startsWith('http') &&
@@ -478,6 +483,17 @@ const AssistantMessage = ({
                 <span className="text-[11px]">Retry</span>
               </button>
             )}
+
+            {onPromptClick && !msg.content.includes('[EPISODE_META]') && (
+              <button
+                onClick={() => onPromptClick("Convert this concept / topic into an educational podcast story episode with [EPISODE_META], [AUDIO_SCRIPT_HINDI], and [MEMORY_ANCHOR_NOTES].")}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-2.5 py-1.5 text-xs font-medium text-emerald-300 transition-all hover:border-emerald-500/60 hover:bg-emerald-900/30 hover:text-white active:scale-95 cursor-pointer"
+                title="Convert this concept into an educational podcast story episode"
+              >
+                <Radio size={13} className="text-emerald-400" />
+                <span className="text-[11px]">Make Podcast Story</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -675,6 +691,7 @@ export default function App() {
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [showPdfSlideModal, setShowPdfSlideModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [showPodcastModal, setShowPodcastModal] = useState(false);
   const [showMasteryModal, setShowMasteryModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'account' | 'api_keys' | 'academic' | 'preferences' | 'hotwords'>('account');
@@ -2165,6 +2182,18 @@ export default function App() {
 
           {/* Right Header: Actions & Account Profile */}
           <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 shrink-0">
+            {/* Story Studio & Educational Podcast Button */}
+            <button
+              id="header-podcast-studio-btn"
+              onClick={() => setShowPodcastModal(true)}
+              className="flex h-8.5 sm:h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/40 to-[#0D1C17] px-2 sm:px-2.5 text-xs font-semibold text-emerald-400 transition-all hover:border-emerald-400 hover:bg-emerald-900/40 hover:text-white active:scale-95 cursor-pointer shadow-xs shrink-0"
+              title="Story Studio & Educational Podcast (Audio-First Learning)"
+              aria-label="Story Studio & Podcast"
+            >
+              <Radio size={15} className="text-emerald-400 animate-pulse shrink-0" />
+              <span className="hidden sm:inline text-xs font-bold">Podcast</span>
+            </button>
+
             {/* OCR Document Scanner & Handwritten Notes Hub (ICON ONLY) */}
             <button
               id="header-ocr-scanner-btn"
@@ -2283,6 +2312,18 @@ export default function App() {
 
                     {/* Menu Actions */}
                     <div className="space-y-0.5">
+                      <button
+                        id="profile-menu-podcast-btn"
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setShowPodcastModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-[#12271F] hover:text-white transition-colors cursor-pointer"
+                      >
+                        <Radio size={14} className="text-emerald-400" />
+                        <span>Story Studio & Podcast Narrator</span>
+                      </button>
+
                       <button
                         id="profile-menu-account-vault-btn"
                         onClick={() => {
@@ -2420,6 +2461,23 @@ export default function App() {
 
                 {/* Prompt Suggestion Cards */}
                 <div className="grid w-full max-w-2xl grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                  <button
+                    onClick={() => setShowPodcastModal(true)}
+                    className="group flex flex-col justify-between rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-950/40 via-[#161618] to-[#0A1713] p-4 transition-all hover:border-emerald-400 hover:bg-emerald-950/60 active:scale-[0.99] cursor-pointer shadow-[0_0_20px_rgba(74,222,128,0.15)]"
+                  >
+                    <div className="flex items-center justify-between text-xs text-emerald-400 mb-2 font-medium">
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <Radio size={13} className="animate-pulse text-emerald-400" />
+                        Story Studio (Podcast)
+                      </span>
+                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold text-emerald-300 border border-emerald-500/40 uppercase">Audio</span>
+                    </div>
+                    <span className="text-sm font-semibold text-white">
+                      Create Audio Learning Story
+                    </span>
+                    <span className="text-xs text-gray-400 mt-1">Convert chapters or notes into an educational audio podcast with Hindi TTS</span>
+                  </button>
+
                   <button
                     onClick={() =>
                       handleSend(
@@ -2889,6 +2947,25 @@ export default function App() {
                             <span className="text-[12px] sm:text-[13px] text-gray-400">Timed steps & video scenes</span>
                           </div>
                         </button>
+
+                        <button 
+                          className="flex w-full items-center gap-4 rounded-2xl p-2 sm:p-3 hover:bg-white/5 transition-colors group text-left"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            setInputValue("");
+                            setActiveMode("Story Studio");
+                            addSystemMessage("🎙️ **Examix AI Story Studio Active!**\n\nTell me any topic, syllabus chapter, or paste your notes. I will transform it into an immersive, story-driven learning podcast episode with an engaging hook, narrative concept explanation, spoken audio player (Hindi/Hinglish TTS), and downloadable 3-point exam memory notes.", "Story Studio / Educational Podcast");
+                            handleSend("I am activating Story Studio / Educational Podcast Mode. Please ask me for the topic, chapter, or notes I want to convert into an audio learning story.", true);
+                          }}
+                        >
+                          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#12271F] text-emerald-400">
+                            <Radio size={20} className="sm:h-6 sm:w-6" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[14px] sm:text-[15px] font-semibold text-white">Story Studio (Podcast)</span>
+                            <span className="text-[12px] sm:text-[13px] text-gray-400">Audio stories, podcasts & memory notes</span>
+                          </div>
+                        </button>
                       </div>
                       
                       {/* Extra spacing at the bottom for mobile safe area */}
@@ -3203,6 +3280,16 @@ export default function App() {
         settings={hotwordSettings}
         onUpdateSettings={handleUpdateHotwordSettings}
         onLaunchOledMode={() => setShowOledScreenOffMode(true)}
+      />
+
+      {/* Podcast & Story Studio Modal */}
+      <PodcastStudioModal
+        isOpen={showPodcastModal}
+        onClose={() => setShowPodcastModal(false)}
+        onGeneratePodcast={(prompt) => {
+          setActiveMode("Story Studio");
+          handleSend(prompt);
+        }}
       />
 
       {/* OLED Deep-Black True Screen-Off Mode Canvas */}
